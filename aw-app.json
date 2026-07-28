@@ -2,38 +2,28 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "AW Browser",
-  "version": "0.2.0",
-  "description": "BLOQUEADO (2026-07-28): AW Browser como app Tier 2 (container) — Chromium headless via imagem prebuilt (ex. browserless/chrome), rodado com --shm-size=1g, expondo o endpoint CDP. Decisão de Frederico após o Tier 1 in-process (v0.1.0) esbarrar em /dev/shm de 64MB, sandbox non-root e deps sem apt. NÃO INSTALÁVEL: o runtime Tier 2 (container-per-app) do framework de apps desacoplado ainda não existe (ADR decoupled-apps-framework.md, Phase 6 'Tier 2 containers' não implementada em repos/aw-workspace/src/apps/) E o container aw-workspace não tem acesso a socket docker/podman para lançar containers-irmãos. Ver README.md para o relatório de viabilidade completo.",
+  "version": "0.3.0",
+  "description": "AW Browser as a Tier-2 (container) app: a headless Chromium instance from a prebuilt image (ghcr.io/browserless/chromium), started with --shm-size=1g, exposing its CDP remote-debugging endpoint. The aw-workspace runtime spawns the container over the host's rootless podman socket and reverse-proxies it at /api/apps/browser/* (ws://.../json/version, driveable by Playwright/CDP clients). Supersedes the fragile Tier-1 in-process prototype (kept in reference/) which hit 64MB /dev/shm, root-sandbox and apt-less-deps walls.",
   "tier": "container",
   "publisher": "TekFlox",
-  "resource_estimate": { "cpu": "medium", "memory": "~500 MB", "disk": "~500 MB (imagem prebuilt)" },
+  "resource_estimate": { "cpu": "medium", "memory": "~500 MB", "disk": "~500 MB (prebuilt image)" },
 
   "runtime": {
-    "image": "browserless/chrome:latest",
+    "image": "ghcr.io/browserless/chromium:latest",
     "port": 3000,
     "resources": { "cpus": 0.5, "mem_mb": 1024 },
-    "run_flags_needed": ["--shm-size=1g"],
-    "_status": "ASPIRACIONAL — nenhum runtime Tier 2 existe hoje para executar isto. Ver README."
+    "run_flags_needed": ["--shm-size=1g"]
   },
 
   "permissions": [
-    "routes:register",
-    "net:outbound",
-    "fs:workspace-data"
+    "containers:manage"
   ],
 
-  "contributes": {
-    "routes": [{ "prefix": "/api/apps/browser" }]
-  },
+  "contributes": {},
 
   "config_schema": {
     "type": "object",
     "properties": {
-      "port": {
-        "type": "number",
-        "default": 9333,
-        "description": "CDP remote-debugging port the browser container would expose."
-      },
       "window_width": { "type": "number", "default": 1440 },
       "window_height": { "type": "number", "default": 900 }
     },

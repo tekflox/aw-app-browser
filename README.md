@@ -5,24 +5,41 @@ endpoint — until now a hard-coded container, `tools/browser/`) onto the
 [Decoupled Apps Framework](../../docs/knowledge_base/docs/architecture/decoupled-apps-framework.md)
 (`aw-app.json` manifest schema v1).
 
-## Status: BLOCKED — Tier 2 (container) runtime does not exist yet (2026-07-28)
+## Status: Tier-2 REAL as of 2026-07-28 — this is the first Tier-2 app
 
-Frederico's original ask ran Chromium in-process (Tier 1) inside the
-aw-workspace container. That worked as a smoke test (see
-`reference/tier1-prototype-DO-NOT-INSTALL/`) but is fragile in real use:
-Chromium refuses its own sandbox as root (`--no-sandbox` needed) and the
-container's `/dev/shm` is undersized for headless Chromium's default
-behavior (`--disable-dev-shm-usage` needed) — both workarounds, not fixes.
+AW Browser now runs as a **Tier-2 (container) app**: `aw-app.json` declares
+`tier: container` with `runtime.image = ghcr.io/browserless/chromium`,
+`runtime.port = 3000` (CDP), and `run_flags_needed: ["--shm-size=1g"]`. The
+aw-workspace runtime spawns the container over the host's **rootless podman
+socket** and reverse-proxies it at `/api/apps/browser/*` behind the app
+IdentityGuard.
 
-Frederico's follow-up direction (Telegram, 2026-07-28): don't run Chromium
-**native** inside the aw-workspace process — run the whole AW Browser as a
-**separate container** (Tier 2 / container-per-app), started with
-`--shm-size=1g` from a prebuilt image that already bundles Chromium + all
-its libs (`browserless/chrome`, `selenium/standalone-chromium`, or the
-official Playwright image). That sidesteps both problems structurally
-instead of flag-patching them.
+What made this possible (Phase 6 of the decoupled-apps framework, landed
+2026-07-28, `repos/aw-workspace/src/apps/`):
 
-**This repo was asked to investigate feasibility before building it. Verdict: not viable yet, and here's exactly why.**
+- `containers.py` — `ContainerSupervisor` (mirrors `services.py`), talks to the
+  engine via the Python `docker` SDK against `AW_CONTAINER_SOCKET` (podman
+  speaks the Docker API); pulls the image, runs `aw-app-<slug>` with the
+  manifest's `run_flags` + `resources`, **never** `--privileged`. Journaled →
+  uninstall stops + removes the container.
+- `runtime.py` — the `tier: container` load path: enforces `containers:manage`
+  (high-risk → signed/marketplace apps only) and mounts a reverse proxy.
+- `proxy.py` — `ContainerReverseProxy` forwarding both HTTP and WebSocket (CDP
+  needs WS) to the container.
+
+**Trust note:** the mounted socket is the *rootless* podman socket — scoped to
+the unprivileged `aw` user, not root — so an app container can only do what
+user `aw` already can. Frederico approved the mount (Telegram, 2026-07-28,
+option 1).
+
+The Tier-1 in-process prototype is kept, untouched, in `reference/` — do not
+install it.
+
+---
+
+The feasibility report below is **historical** (it documented, on 2026-07-28,
+*why Tier 2 didn't exist yet*). Phase 6 has since landed and every blocker
+listed here is resolved; it's retained for context.
 
 ### 1. Does Tier 2 (container-per-app) exist in the decoupled apps framework?
 
