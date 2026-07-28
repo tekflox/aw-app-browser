@@ -1,0 +1,15 @@
+{
+  "layout": "stack",
+  "regions": [
+    {
+      "id": "screen",
+      "widgets": [
+        {
+          "type": "iframe",
+          "title": "AW Browser",
+          "src": "/api/apps/browser/vnc.html?autoconnect=true&resize=remote&reconnect=true&show_dot=true&path=api/apps/browser/websockify"
+        }
+      ]
+    }
+  ]
+}
