@@ -2,15 +2,15 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "AW Browser",
-  "version": "0.3.0",
-  "description": "AW Browser as a Tier-2 (container) app: a headless Chromium instance from a prebuilt image (ghcr.io/browserless/chromium), started with --shm-size=1g, exposing its CDP remote-debugging endpoint. The aw-workspace runtime spawns the container over the host's rootless podman socket and reverse-proxies it at /api/apps/browser/* (ws://.../json/version, driveable by Playwright/CDP clients). Supersedes the fragile Tier-1 in-process prototype (kept in reference/) which hit 64MB /dev/shm, root-sandbox and apt-less-deps walls.",
+  "version": "0.4.0",
+  "description": "AW Browser as a Tier-2 (container) app: a headless Chromium instance from OUR prebuilt image (ghcr.io/tekflox/aw-browser, built by this repo's container/ + .github/workflows/build.yml, ported from the legacy monolith tools/browser/), started with --shm-size=1g, exposing its CDP remote-debugging endpoint on port 9223 (entrypoint republishes the internal 127.0.0.1:9222 CDP on 0.0.0.0:9223). Unlike the generic third-party browserless image, ours carries the AW container flags, the CDP platform-override fingerprint daemon, and the Microsoft-core-font set, and is wired to tunnel through AW's cookie proxy and accept the aw-sync extensions. The aw-workspace runtime spawns the container over the host's rootless podman socket and reverse-proxies it at /api/apps/browser/* (ws://.../json/version, driveable by Playwright/CDP clients). Supersedes the fragile Tier-1 in-process prototype (kept in reference/) which hit 64MB /dev/shm, root-sandbox and apt-less-deps walls.",
   "tier": "container",
   "publisher": "TekFlox",
   "resource_estimate": { "cpu": "medium", "memory": "~500 MB", "disk": "~500 MB (prebuilt image)" },
 
   "runtime": {
-    "image": "ghcr.io/browserless/chromium:latest",
-    "port": 3000,
+    "image": "ghcr.io/tekflox/aw-browser:latest",
+    "port": 9223,
     "resources": { "cpus": 0.5, "mem_mb": 1024 },
     "run_flags_needed": ["--shm-size=1g"]
   },
@@ -30,7 +30,16 @@
     "required": []
   },
 
-  "dependencies": {},
+  "dependencies": {
+    "apps": [
+      {
+        "id": "proxy",
+        "version": ">=0.1.0",
+        "reason": "Authentication — this container's Chrome must tunnel through aw-app-proxy's CONNECT proxy, and aw-app-proxy injects/clears its cookies via CDP so it's logged in as the user. See tekflox/aw-app-proxy README."
+      }
+    ],
+    "note": "Declared for documentation — src/apps/ has no dependency-resolution/enforcement mechanism as of 2026-07-28 (see tekflox/aw-app-proxy README); does not block or auto-install anything yet."
+  },
 
   "migrations": {}
 }
