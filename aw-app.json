@@ -2,44 +2,28 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "AW Browser",
-  "version": "0.1.0",
-  "description": "Runs a managed headless Chromium instance (CDP remote-debugging endpoint) as a decoupled-apps service — the app-system equivalent of the hard-coded aw-browser container. MVP exposes the CDP endpoint (ws://.../json/version) driveable by Playwright/CDP clients; chromedriver/Selenium WebDriver is phase 2.",
-  "tier": "inprocess",
+  "version": "0.2.0",
+  "description": "BLOQUEADO (2026-07-28): AW Browser como app Tier 2 (container) — Chromium headless via imagem prebuilt (ex. browserless/chrome), rodado com --shm-size=1g, expondo o endpoint CDP. Decisão de Frederico após o Tier 1 in-process (v0.1.0) esbarrar em /dev/shm de 64MB, sandbox non-root e deps sem apt. NÃO INSTALÁVEL: o runtime Tier 2 (container-per-app) do framework de apps desacoplado ainda não existe (ADR decoupled-apps-framework.md, Phase 6 'Tier 2 containers' não implementada em repos/aw-workspace/src/apps/) E o container aw-workspace não tem acesso a socket docker/podman para lançar containers-irmãos. Ver README.md para o relatório de viabilidade completo.",
+  "tier": "container",
   "publisher": "TekFlox",
-  "resource_estimate": { "cpu": "medium", "memory": "~400 MB", "disk": "~400 MB" },
+  "resource_estimate": { "cpu": "medium", "memory": "~500 MB", "disk": "~500 MB (imagem prebuilt)" },
 
   "runtime": {
-    "python": ">=3.11",
-    "entrypoint": "browser_app.plugin:BrowserAppPlugin",
-    "pip_requires": ["httpx>=0.24"]
+    "image": "browserless/chrome:latest",
+    "port": 3000,
+    "resources": { "cpus": 0.5, "mem_mb": 1024 },
+    "run_flags_needed": ["--shm-size=1g"],
+    "_status": "ASPIRACIONAL — nenhum runtime Tier 2 existe hoje para executar isto. Ver README."
   },
 
   "permissions": [
-    "commands:install",
-    "service:manage",
     "routes:register",
     "net:outbound",
     "fs:workspace-data"
   ],
 
   "contributes": {
-    "routes": [{ "prefix": "/api/apps/browser" }],
-    "system_clis": [
-      { "name": "chromium", "installer": "scripts/install_chromium.sh" }
-    ],
-    "services": [
-      { "id": "chromium", "description": "Headless Chromium with a CDP remote-debugging endpoint." }
-    ],
-    "windows": [
-      { "id": "browser.main", "title": "AW Browser",
-        "body": { "type": "declarative", "spec": "windows/main.json" } }
-    ],
-    "nav": [
-      { "id": "browser.nav", "label": "Browser", "icon": "globe", "section": "workspace", "opens": "browser.main" }
-    ],
-    "settings_panels": [
-      { "id": "browser.settings", "schema_ref": "#/config_schema" }
-    ]
+    "routes": [{ "prefix": "/api/apps/browser" }]
   },
 
   "config_schema": {
@@ -48,23 +32,10 @@
       "port": {
         "type": "number",
         "default": 9333,
-        "description": "CDP remote-debugging port the managed Chromium listens on (0.0.0.0)."
+        "description": "CDP remote-debugging port the browser container would expose."
       },
-      "headless": {
-        "type": "boolean",
-        "default": true,
-        "description": "Run Chromium with --headless=new. Turn off only for local debugging with a display available."
-      },
-      "window_width": {
-        "type": "number",
-        "default": 1440,
-        "description": "Initial window width in pixels."
-      },
-      "window_height": {
-        "type": "number",
-        "default": 900,
-        "description": "Initial window height in pixels."
-      }
+      "window_width": { "type": "number", "default": 1440 },
+      "window_height": { "type": "number", "default": 900 }
     },
     "required": []
   },

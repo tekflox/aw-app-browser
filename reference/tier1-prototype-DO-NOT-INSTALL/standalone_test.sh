@@ -6,7 +6,7 @@
 # Usage (from inside the container, with this repo copied in):
 #   bash tests/standalone_test.sh
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 echo "== install_chromium.sh =="
 bash scripts/install_chromium.sh
