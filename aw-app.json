@@ -1,0 +1,75 @@
+{
+  "manifest_version": 1,
+  "id": "browser",
+  "name": "AW Browser",
+  "version": "0.1.0",
+  "description": "Runs a managed headless Chromium instance (CDP remote-debugging endpoint) as a decoupled-apps service — the app-system equivalent of the hard-coded aw-browser container. MVP exposes the CDP endpoint (ws://.../json/version) driveable by Playwright/CDP clients; chromedriver/Selenium WebDriver is phase 2.",
+  "tier": "inprocess",
+  "publisher": "TekFlox",
+  "resource_estimate": { "cpu": "medium", "memory": "~400 MB", "disk": "~400 MB" },
+
+  "runtime": {
+    "python": ">=3.11",
+    "entrypoint": "browser_app.plugin:BrowserAppPlugin",
+    "pip_requires": ["httpx>=0.24"]
+  },
+
+  "permissions": [
+    "commands:install",
+    "service:manage",
+    "routes:register",
+    "net:outbound",
+    "fs:workspace-data"
+  ],
+
+  "contributes": {
+    "routes": [{ "prefix": "/api/apps/browser" }],
+    "system_clis": [
+      { "name": "chromium", "installer": "scripts/install_chromium.sh" }
+    ],
+    "services": [
+      { "id": "chromium", "description": "Headless Chromium with a CDP remote-debugging endpoint." }
+    ],
+    "windows": [
+      { "id": "browser.main", "title": "AW Browser",
+        "body": { "type": "declarative", "spec": "windows/main.json" } }
+    ],
+    "nav": [
+      { "id": "browser.nav", "label": "Browser", "icon": "globe", "section": "workspace", "opens": "browser.main" }
+    ],
+    "settings_panels": [
+      { "id": "browser.settings", "schema_ref": "#/config_schema" }
+    ]
+  },
+
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "port": {
+        "type": "number",
+        "default": 9333,
+        "description": "CDP remote-debugging port the managed Chromium listens on (0.0.0.0)."
+      },
+      "headless": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run Chromium with --headless=new. Turn off only for local debugging with a display available."
+      },
+      "window_width": {
+        "type": "number",
+        "default": 1440,
+        "description": "Initial window width in pixels."
+      },
+      "window_height": {
+        "type": "number",
+        "default": 900,
+        "description": "Initial window height in pixels."
+      }
+    },
+    "required": []
+  },
+
+  "dependencies": {},
+
+  "migrations": {}
+}

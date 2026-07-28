@@ -1,0 +1,32 @@
+{
+  "layout": "stack",
+  "regions": [
+    {
+      "id": "status",
+      "widgets": [
+        { "type": "markdown", "value": "## AW Browser\nManaged headless Chromium with a CDP remote-debugging endpoint. Point a Playwright/CDP client at the `cdp_url` shown below." },
+        {
+          "type": "button",
+          "label": "Check status",
+          "action": { "call": "GET /api/apps/browser/status" }
+        }
+      ]
+    },
+    {
+      "id": "controls",
+      "widgets": [
+        { "type": "markdown", "value": "### Service controls" },
+        {
+          "type": "button",
+          "label": "Start",
+          "action": { "call": "POST /api/apps/browser/start" }
+        },
+        {
+          "type": "button",
+          "label": "Stop",
+          "action": { "call": "POST /api/apps/browser/stop" }
+        }
+      ]
+    }
+  ]
+}
