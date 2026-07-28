@@ -5,6 +5,7 @@
   "version": "0.5.0",
   "description": "AW Browser as a Tier-2 (container) app: a Chromium instance from OUR prebuilt image (ghcr.io/tekflox/aw-browser, built by this repo's container/ + .github/workflows/build.yml, ported from the legacy monolith tools/browser/), started with --shm-size=1g. The container runs Chromium on Xvfb :99, exposes an interactive screen over noVNC on port 7900 (x11vnc:5900 → noVNC/websockify:7900) AND a CDP remote-debugging endpoint on 9223 (for Playwright/automation, reachable in-workspace as aw-app-browser:9223). runtime.port is the noVNC screen (7900) so the app's window + reverse-proxy surface the interactive browser the user can see and click; CDP stays on 9223 for automation. Unlike the generic browserless image, ours carries the AW container flags, the CDP platform-override fingerprint daemon, and the Microsoft-core-font set, and is wired to tunnel through AW's cookie proxy and accept the aw-sync extensions. The aw-workspace runtime spawns the container over the host's rootless podman socket and reverse-proxies it at /api/apps/browser/* (noVNC screen + WS). Supersedes the fragile Tier-1 in-process prototype (kept in reference/).",
   "tier": "container",
+  "requires_ui_refresh": true,
   "publisher": "TekFlox",
   "resource_estimate": { "cpu": "medium", "memory": "~500 MB", "disk": "~500 MB (prebuilt image)" },
 
@@ -16,18 +17,13 @@
   },
 
   "permissions": [
-    "containers:manage",
-    "ui:slots:core.nav.workspace"
+    "containers:manage"
   ],
 
   "contributes": {
     "windows": [
       { "id": "browser.main", "title": "AW Browser",
         "body": { "type": "declarative", "spec": "windows/main.json" } }
-    ],
-    "nav": [
-      { "id": "browser.nav", "label": "AW Browser", "icon": "globe",
-        "section": "workspace", "opens": "browser.main" }
     ]
   },
 

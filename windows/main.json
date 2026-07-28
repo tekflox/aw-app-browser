@@ -5,9 +5,10 @@
       "id": "screen",
       "widgets": [
         {
-          "type": "iframe",
+          "type": "app_iframe",
           "title": "AW Browser",
-          "src": "/api/apps/browser/vnc.html?autoconnect=true&resize=remote&reconnect=true&show_dot=true&path=api/apps/browser/websockify"
+          "app_id": "aw-browser",
+          "path": "/vnc.html?autoconnect=true&resize=remote&reconnect=true&show_dot=true&path=websockify"
         }
       ]
     }
