@@ -8,6 +8,18 @@ name: Build AW Browser image
 #
 #   gh workflow run build.yml                        # amd64
 #   gh workflow run build.yml -f include_arm64=true  # + linux/arm64 (QEMU)
+#
+# One-time manual step after the FIRST push: the package is created private
+# regardless of this repo's own visibility, and GitHub has no REST/GraphQL
+# endpoint to change a container package's visibility (confirmed 2026-07-28:
+# PATCH /orgs/tekflox/packages/container/aw-browser -> 404, with a token that
+# *can* GET the package fine, so it's not a scope issue — the endpoint simply
+# doesn't exist for packages). This blocks the "public app = tokenless
+# install" policy (aw-workspace-apps-public-policy) until someone with org
+# admin flips it by hand:
+#   github.com/orgs/tekflox/packages/container/package/aw-browser
+#   -> Package settings -> Danger Zone -> Change visibility -> Public
+# Repeat for any future app repo that publishes its own container image.
 on:
   workflow_dispatch:
     inputs:
