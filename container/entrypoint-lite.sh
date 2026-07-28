@@ -93,14 +93,20 @@ CHROME_ARGS=(
     --window-size="${SCREEN_WIDTH},${SCREEN_HEIGHT}"
     "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
     --accept-lang=en-US,pt-BR,pt,en
-    # The browser container runs with `network_mode: container:aw-sandbox`,
-    # so it shares aw-sandbox's loopback. proxy.py listens on 127.0.0.1:9124
-    # in that shared netns, reachable directly. Earlier this used
-    # host.docker.internal:9124, which only worked when the browser had its
-    # own netns and Docker injected the host-gateway hostname — under shared
-    # netns, the browser container's /etc/hosts has no such entry and every
-    # outbound request fails with ERR_PROXY_CONNECTION_FAILED.
-    --proxy-server=127.0.0.1:9124
+    # Two deployment shapes reach aw-app-proxy differently:
+    #  - legacy shared-netns dev (`network_mode: container:aw-sandbox`): this
+    #    container shares aw-sandbox's loopback, so 127.0.0.1:9124 reaches
+    #    proxy.py directly.
+    #  - Tier-2 (podman, own bridge netns): this container is NOT in the
+    #    workspace's netns, so 127.0.0.1 is only its own loopback. The
+    #    aw-workspace runtime injects AW_WORKSPACE_HOST (the workspace's
+    #    name on their shared podman network — see containers.py) so Chrome
+    #    can reach the in-process aw-app-proxy there instead.
+    # Earlier this used host.docker.internal:9124, which only worked when
+    # Docker injected the host-gateway hostname for an own-netns container —
+    # under shared netns there's no such /etc/hosts entry, so that always
+    # failed with ERR_PROXY_CONNECTION_FAILED.
+    --proxy-server="${AW_WORKSPACE_HOST:-127.0.0.1}:9124"
     "--proxy-bypass-list=<-loopback>"
 )
 
