@@ -10,7 +10,7 @@
   "resource_estimate": {
     "cpu": "medium",
     "memory": "~500 MB",
-    "disk": "~500 MB (prebuilt image)"
+    "disk": "~500 MB"
   },
   "runtime": {
     "image": "ghcr.io/tekflox/aw-browser:latest",
