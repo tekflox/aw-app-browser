@@ -4,6 +4,7 @@
   "name": "Browser",
   "version": "0.7.1",
   "description": "Chromium for AW workspaces with an interactive noVNC screen, CDP automation endpoint, workspace cookie-proxy support, and configurable window size.",
+  "icon": "globe",
   "tier": "container",
   "requires_ui_refresh": true,
   "publisher": "TekFlox",
@@ -31,9 +32,11 @@
       {
         "id": "browser.main",
         "title": "Browser",
+        "icon": "globe",
         "body": {
-          "type": "declarative",
-          "spec": "windows/main.json"
+          "type": "managed_app",
+          "kind": "browser",
+          "path": "/vnc.html?autoconnect=true&resize=remote&reconnect=true&show_dot=true&path=websockify"
         }
       }
     ]
