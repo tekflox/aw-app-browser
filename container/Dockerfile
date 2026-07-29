@@ -1,5 +1,4 @@
-# AW Browser — OUR headless-Chromium image, ported from the legacy monolith
-# (agentic-workspace tools/browser/). Deliberately NOT the third-party
+# Browser — headless Chromium image for AW workspaces. Deliberately NOT the third-party
 # ghcr.io/browserless/chromium image: this one carries the container flags,
 # the CDP platform-override fingerprint daemon, and the Microsoft-core-font
 # set the AW stack depends on, and is wired to tunnel through OUR cookie proxy
@@ -27,7 +26,7 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root runtime user. Named `seluser` (uid 1200, browserless convention) to
-# match the profile paths the ported entrypoint cleans up
+# match the profile paths the entrypoint cleans up
 # (/home/seluser/.config/chromium/Singleton*). Passwordless sudo because the
 # entrypoint chowns the bind-mounted profile dir and installs fonts at runtime.
 RUN groupadd -r -g 1200 seluser && \
@@ -36,7 +35,7 @@ RUN groupadd -r -g 1200 seluser && \
     chmod 0440 /etc/sudoers.d/seluser
 
 # Bake the assets the entrypoint expects under /opt/aw-browser/ so the image is
-# self-contained (the monolith used a host bind-mount for these).
+# self-contained.
 COPY fonts/ /opt/aw-browser/fonts/
 COPY platform-override.py /opt/aw-browser/platform-override.py
 

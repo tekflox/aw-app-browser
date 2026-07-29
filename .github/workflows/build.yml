@@ -1,10 +1,8 @@
-name: Build AW Browser image
+name: Build Browser image
 
-# Builds OUR headless-Chromium image (container/, ported from the legacy
-# monolith tools/browser/) and pushes it to ghcr.io/<owner>/aw-browser.
-# The workflow-scoped GITHUB_TOKEN provides packages:write, so no external
-# credential is needed. Manual trigger only (no automatic GHA runs — cost/
-# quota conscious, mirrors the agents-platform image workflow).
+# Builds the Browser Chromium image and pushes it to ghcr.io/<owner>/aw-browser.
+# Push builds run only for release bump commits so `latest` follows the tagged
+# manifest release. Manual rebuilds remain available via workflow_dispatch.
 #
 #   gh workflow run build.yml                        # amd64
 #   gh workflow run build.yml -f include_arm64=true  # + linux/arm64 (QEMU)
@@ -21,6 +19,8 @@ name: Build AW Browser image
 #   -> Package settings -> Danger Zone -> Change visibility -> Public
 # Repeat for any future app repo that publishes its own container image.
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
     inputs:
       include_arm64:
@@ -38,6 +38,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip release]')) }}
     name: aw-browser
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -71,6 +72,14 @@ jobs:
             echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Read app version
+        id: version
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          print(f"version={json.load(open('aw-app.json'))['version']}")
+          PY
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -80,6 +89,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:v${{ steps.version.outputs.version }}
             ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:${{ github.sha }}
           cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:buildcache,mode=max
@@ -92,5 +102,6 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| **Image** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:latest\` |"
+            echo "| **Version tag** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:v${{ steps.version.outputs.version }}\` |"
             echo "| **Platforms** | ${{ steps.plat.outputs.platforms }} |"
           } >> "$GITHUB_STEP_SUMMARY"

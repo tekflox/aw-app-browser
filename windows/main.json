@@ -6,7 +6,7 @@
       "widgets": [
         {
           "type": "app_iframe",
-          "title": "AW Browser",
+          "title": "Browser",
           "app_id": "browser",
           "path": "/vnc.html?autoconnect=true&resize=remote&reconnect=true&show_dot=true&path=websockify"
         }
