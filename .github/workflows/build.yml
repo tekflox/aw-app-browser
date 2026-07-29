@@ -1,6 +1,6 @@
 name: Build Browser image
 
-# Builds the Browser Chromium image and pushes it to ghcr.io/<owner>/aw-browser.
+# Builds the Browser Chromium image and pushes it to ghcr.io/<owner>/aw-app-browser.
 # Push builds run only for release bump commits so `latest` follows the tagged
 # manifest release. Manual rebuilds remain available via workflow_dispatch.
 #
@@ -10,12 +10,12 @@ name: Build Browser image
 # One-time manual step after the FIRST push: the package is created private
 # regardless of this repo's own visibility, and GitHub has no REST/GraphQL
 # endpoint to change a container package's visibility (confirmed 2026-07-28:
-# PATCH /orgs/tekflox/packages/container/aw-browser -> 404, with a token that
+# PATCH /orgs/tekflox/packages/container/aw-app-browser -> 404, with a token that
 # *can* GET the package fine, so it's not a scope issue — the endpoint simply
 # doesn't exist for packages). This blocks the "public app = tokenless
 # install" policy (aw-workspace-apps-public-policy) until someone with org
 # admin flips it by hand:
-#   github.com/orgs/tekflox/packages/container/package/aw-browser
+#   github.com/orgs/tekflox/packages/container/aw-app-browser/settings
 #   -> Package settings -> Danger Zone -> Change visibility -> Public
 # Repeat for any future app repo that publishes its own container image.
 on:
@@ -29,7 +29,7 @@ on:
         default: false
 
 concurrency:
-  group: build-aw-browser-${{ github.ref }}
+  group: build-aw-app-browser-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -39,7 +39,7 @@ permissions:
 jobs:
   build:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip release]')) }}
-    name: aw-browser
+    name: aw-app-browser
     runs-on: [self-hosted, aw-baremetal]
     timeout-minutes: 60
     steps:
@@ -88,20 +88,20 @@ jobs:
           platforms: ${{ steps.plat.outputs.platforms }}
           push: true
           tags: |
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:latest
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:v${{ steps.version.outputs.version }}
-            ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:${{ github.sha }}
-          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:buildcache,mode=max
+            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:v${{ steps.version.outputs.version }}
+            ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:${{ github.sha }}
+          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:buildcache,mode=max
 
       - name: Summary
         run: |
           {
-            echo "## 🐳 aw-browser pushed"
+            echo "## 🐳 aw-app-browser pushed"
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| **Image** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:latest\` |"
-            echo "| **Version tag** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-browser:v${{ steps.version.outputs.version }}\` |"
+            echo "| **Image** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:latest\` |"
+            echo "| **Version tag** | \`ghcr.io/${{ steps.owner.outputs.lc }}/aw-app-browser:v${{ steps.version.outputs.version }}\` |"
             echo "| **Platforms** | ${{ steps.plat.outputs.platforms }} |"
           } >> "$GITHUB_STEP_SUMMARY"

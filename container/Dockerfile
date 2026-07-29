@@ -4,7 +4,7 @@
 # set the AW stack depends on, and is wired to tunnel through OUR cookie proxy
 # and accept the aw-sync extensions — none of which browserless does.
 #
-# Published by .github/workflows/build.yml as ghcr.io/tekflox/aw-browser:latest.
+# Published by .github/workflows/build.yml as ghcr.io/tekflox/aw-app-browser:latest.
 FROM debian:bookworm-slim
 
 # Chromium + Xvfb + VNC/noVNC + the minimal deps entrypoint-lite.sh needs.

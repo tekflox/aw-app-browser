@@ -14,7 +14,7 @@ Browser provides:
 The app runs as a Tier-2 container from:
 
 ```text
-ghcr.io/tekflox/aw-browser:latest
+ghcr.io/tekflox/aw-app-browser:latest
 ```
 
 The workspace exposes the noVNC screen on the app route. CDP stays available

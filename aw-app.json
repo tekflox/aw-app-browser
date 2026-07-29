@@ -14,7 +14,7 @@
     "disk": "~500 MB"
   },
   "runtime": {
-    "image": "ghcr.io/tekflox/aw-browser:latest",
+    "image": "ghcr.io/tekflox/aw-app-browser:latest",
     "port": 7900,
     "resources": {
       "cpus": 0.5,
