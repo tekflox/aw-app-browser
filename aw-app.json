@@ -60,9 +60,10 @@
       {
         "id": "proxy",
         "version": ">=0.1.0",
+        "required": true,
         "reason": "Authentication \u2014 this container's Chrome must tunnel through aw-app-proxy's CONNECT proxy, and aw-app-proxy injects/clears its cookies via CDP so it's logged in as the user. See tekflox/aw-app-proxy README."
       }
     ],
-    "note": "Declared for documentation \u2014 src/apps/ has no dependency-resolution/enforcement mechanism as of 2026-07-28 (see tekflox/aw-app-proxy README); does not block or auto-install anything yet."
+    "note": "Runtime-enforced app dependency: aw-workspace installs/loads proxy before browser and keeps proxy loaded while browser is desired."
   }
 }
