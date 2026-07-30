@@ -1,6 +1,6 @@
 # Browser
 
-Chromium packaged as a decoupled AW workspace app.
+Chromium packaged as an AW workspace app.
 
 Browser provides:
 
