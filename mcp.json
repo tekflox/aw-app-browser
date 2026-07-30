@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "enabled": true,
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.77",
+        "--cdp-endpoint",
+        "http://aw-app-browser:9223"
+      ]
+    }
+  }
+}
