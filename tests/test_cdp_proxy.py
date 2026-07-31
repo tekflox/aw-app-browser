@@ -94,6 +94,12 @@ async def _run() -> None:
         print("websocket upgrade accepted: PASS")
 
 
+def test_cdp_proxy_rewrites_host_header_and_response_body():
+    # Plain sync wrapper (not `async def test_...`) — the CI installs bare
+    # pytest, no pytest-asyncio plugin to await a native async test.
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     asyncio.run(_run())
     print("ALL PASS")
