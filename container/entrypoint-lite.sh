@@ -152,23 +152,11 @@ else
 fi
 
 echo "Starting CDP proxy (0.0.0.0:9223 → 127.0.0.1:9222)..."
-python3 -c "
-import socket, threading
-def fwd(s,d):
-    try:
-        while (b:=s.recv(65536)): d.sendall(b)
-    except: pass
-    finally: s.close(); d.close()
-srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-srv.bind(('0.0.0.0',9223)); srv.listen(32)
-while True:
-    c,_=srv.accept()
-    try:
-        t=socket.create_connection(('127.0.0.1',9222))
-        threading.Thread(target=fwd,args=(c,t),daemon=True).start()
-        threading.Thread(target=fwd,args=(t,c),daemon=True).start()
-    except: c.close()
-" &
+# HTTP-aware (not a raw byte forward) — Chrome's remote-debugging endpoint
+# rejects any Host header that isn't localhost/an IP, so a plain TCP relay
+# can't be reached by hostname from another container. See cdp_proxy.py's
+# module docstring for the full Host-header + response-body rewrite story.
+python3 /opt/aw-browser/cdp_proxy.py &
 
 echo ""
 echo "======================================"

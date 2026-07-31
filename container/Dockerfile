@@ -38,6 +38,7 @@ RUN groupadd -r -g 1200 seluser && \
 # self-contained.
 COPY fonts/ /opt/aw-browser/fonts/
 COPY platform-override.py /opt/aw-browser/platform-override.py
+COPY cdp_proxy.py /opt/aw-browser/cdp_proxy.py
 
 # Map Mac/Windows font names to the Liberation equivalents so
 # document.fonts.check('12px Arial') etc. return true.
