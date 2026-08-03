@@ -44,6 +44,12 @@
   "config_schema": {
     "type": "object",
     "properties": {
+      "auto_start": {
+        "type": "boolean",
+        "default": true,
+        "title": "Auto-start",
+        "description": "Start this app automatically when the workspace starts."
+      },
       "window_width": {
         "type": "number",
         "default": 1440
