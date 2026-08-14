@@ -22,10 +22,19 @@
     },
     "run_flags_needed": [
       "--shm-size=1g"
+    ],
+    "volumes": [
+      {
+        "source": "$AW_APP_DATA/chrome-profile",
+        "target": "/home/seluser/.config/chromium",
+        "mode": "rw",
+        "reason": "Chromium's profile — cookies, localStorage, logins, history. Without it the profile lives in the container's writable layer and dies on every container recreation (every app update, every workspace redeploy). Profile dir only, deliberately not all of /home/seluser: that would drag ~/.cache/chromium onto the host disk, which grows unbounded."
+      }
     ]
   },
   "permissions": [
-    "containers:manage"
+    "containers:manage",
+    "fs:workspace-data"
   ],
   "contributes": {
     "windows": [

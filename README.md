@@ -8,6 +8,7 @@ Browser adds a full Chromium session to an AW Workspace. It gives users and agen
 - Provides an interactive screen for normal browsing.
 - Supports browser automation for testing and agent-driven workflows.
 - Works with the Proxy app so authenticated browser sessions can reuse workspace-managed cookies.
+- Keeps the browser profile — logins, cookies, history — across workspace redeploys and app updates.
 - Lets the browser window size be configured for the workspace.
 
 ## Why Use It
