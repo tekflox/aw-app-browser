@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "Browser",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "description": "Chromium for AW workspaces with an interactive noVNC screen, CDP automation endpoint, workspace cookie-proxy support, and configurable window size.",
   "icon": "globe",
   "tier": "container",
@@ -28,7 +28,7 @@
         "source": "$AW_APP_DATA/chrome-profile",
         "target": "/home/seluser/.config/chromium",
         "mode": "rw",
-        "reason": "Chromium's profile — cookies, localStorage, logins, history. Without it the profile lives in the container's writable layer and dies on every container recreation (every app update, every workspace redeploy). Profile dir only, deliberately not all of /home/seluser: that would drag ~/.cache/chromium onto the host disk, which grows unbounded."
+        "reason": "Chromium's profile \u2014 cookies, localStorage, logins, history. Without it the profile lives in the container's writable layer and dies on every container recreation (every app update, every workspace redeploy). Profile dir only, deliberately not all of /home/seluser: that would drag ~/.cache/chromium onto the host disk, which grows unbounded."
       }
     ]
   },
