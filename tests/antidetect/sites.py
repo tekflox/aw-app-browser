@@ -102,31 +102,42 @@ DEVICEANDBROWSERINFO_JS = r"""
 # CreepJS's metric, per the PO, is the `lies` count (target 0) plus the absence
 # of any automation/headless flag. The trust score itself is explicitly NOT
 # pass/fail.
+#
+# In practice the page's own "Headless" panel is the part that actually renders
+# reliably, and it is more informative than the lies counter: it reports
+# `N% stealth`, which is CreepJS's own measure of detected TAMPERING. That is
+# the number this card cares about — a stealth score above 0 means our patches
+# are being caught, which is precisely the failure mode an over-eager spoof
+# produces.
 CREEPJS_JS = r"""
 (() => {
   const t = (document.body ? document.body.innerText : '');
   if (!t.trim()) return {verdict: 'UNKNOWN', detail: 'empty body', evidence: null};
-  // CreepJS renders progressively over tens of seconds. Read the lies counter
-  // out of whichever shape it has settled into rather than insisting the whole
-  // page is done — and keep the full text as evidence either way.
-  const lies = t.match(/lies\s*\((\d+)\)/i)
-            || t.match(/(\d+)\s*lies\b/i)
-            || t.match(/\blies\b[^0-9]{0,20}(\d+)/i);
-  const trust = t.match(/([\d.]+)\s*%/);
-  const liesN = lies ? parseInt(lies[1], 10) : null;
-  if (liesN === null && !/trust score/i.test(t))
-    return {verdict: 'UNKNOWN', detail: 'page had not rendered a lies count yet',
-            evidence: {text: t.slice(0, 6000)}};
-  const flags = [];
-  for (const re of [/headless/i, /automation/i, /stealth/i, /webdriver/i, /bot\b/i]) {
-    const m = t.match(new RegExp('.{0,60}' + re.source + '.{0,60}', 'i'));
-    if (m) flags.push(m[0].replace(/\s+/g, ' ').trim());
-  }
+
+  const num = re => { const m = t.match(re); return m ? parseFloat(m[1]) : null; };
+  const stealth      = num(/([\d.]+)%\s*stealth/i);
+  const headless     = num(/([\d.]+)%\s*headless/i);
+  const likeHeadless = num(/([\d.]+)%\s*like headless/i);
+  const liesM = t.match(/lies\s*\((\d+)\)/i) || t.match(/(\d+)\s*lies\b/i);
+  const lies = liesM ? parseInt(liesM[1], 10) : null;
+  const chromium = /chromium:\s*true/i.test(t);
+  const tz = (t.match(/([A-Za-z]+\/[A-Za-z_]+)\s*\((-?\d+)\)/) || [])[0] || null;
+
+  const ev = {lies, stealthPct: stealth, headlessPct: headless,
+              likeHeadlessPct: likeHeadless, chromium,
+              workerTimezone: tz, text: t.slice(0, 6000)};
+
+  if (stealth === null && lies === null)
+    return {verdict: 'UNKNOWN', detail: 'neither a lies count nor a stealth score rendered yet',
+            evidence: ev};
+
+  // Fail on evidence of tampering being DETECTED, not on the trust score.
+  const bad = (lies !== null && lies > 0) || (stealth !== null && stealth > 0);
   return {
-    verdict: liesN === null ? 'UNKNOWN' : (liesN === 0 ? 'PASS' : 'FAIL'),
-    detail: `lies=${liesN}, trust=${trust ? trust[1] + '%' : 'n/a'}`,
-    evidence: {lies: liesN, trustScore: trust ? trust[1] : null,
-               mentions: flags, text: t.slice(0, 4000)},
+    verdict: bad ? 'FAIL' : 'PASS',
+    detail: `lies=${lies}, stealth=${stealth}%, headless=${headless}%, `
+          + `likeHeadless=${likeHeadless}%, chromium=${chromium}`,
+    evidence: ev,
   };
 })()
 """
