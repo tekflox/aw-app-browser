@@ -16,8 +16,14 @@ notes here instead of expanding the marketplace description.
   macOS speech voice and the Mac-only font remaps are all gone. What remains is
   only what is population-blending rather than contradictory: `deviceMemory`
   clamped to 8 (this build reports 32, above the ceiling Chrome has clamped to
-  since 2017), a 1920x1080 screen instead of the Xvfb geometry, and
-  `navigator.webdriver === false`.
+  since 2017) and `navigator.webdriver === false`.
+- **The last fabricated value, a 1920x1080 screen, is gone too.** It reported a
+  1920x1080 panel while Chrome runs maximised in a 1504x846 Xvfb — a display
+  416x234 larger than the maximised window filling it, which iphey flagged as
+  an inconsistent browser fingerprint. `screen` now reports the real geometry
+  and agrees with `outerWidth`/`outerHeight`. If that size is ever judged too
+  unusual, change `SCREEN_WIDTH`/`SCREEN_HEIGHT` so the real display is a
+  common size rather than claiming a display the container does not have.
 - **The browser's timezone now matches the proxy's exit IP.** It reported UTC
   while egress geolocated to America/New_York — a comparison CreepJS and iphey
   both make directly. Resolved from the live exit IP at container start and set

@@ -187,14 +187,20 @@ BROWSERLEAKS_JS_JS = r"""
 # own screenshot shows the red "Unreliable" headline (QA, 2026-09-03). A Tier B
 # check that cannot fail is worse than no check: it reads as evidence.
 #
-# What iphey actually renders:
-#   #hero-status                       "Reliable" | "Unreliable" (+ a --bad
-#                                      modifier class on the bad one)
-#   a.code-block.<name>-tile           one per section; the flagged one carries
-#                                      the `code-block--error` modifier
-#   .detail-entry > .detail-value      the individual signals, e.g.
-#                                      "Detected an inconsistent browser
-#                                      fingerprint (pineapple)"
+# What iphey actually renders, both states measured live on 2026-09-03:
+#   #hero-status   class "hero-status--bad",  text "Unreliable"   (flagged)
+#                  class "hero-status--good", text "Trustworthy"  (clean)
+#   a.code-block.<name>-tile   one per section; a flagged one carries the
+#                              `code-block--error` modifier
+#   .detail-entry              the individual signals, e.g. "browser Detected
+#                              an inconsistent browser fingerprint (pineapple)"
+#
+# The MODIFIER CLASS is the primary signal, not the wording. The wording is not
+# the antonym pair it looks like — the good headline is "Trustworthy", not
+# "Reliable" — and an earlier revision of this check keyed on Reliable/
+# Unreliable and so could never report PASS on a genuine pass. Keying on
+# iphey's own --good/--bad modifier avoids guessing its vocabulary; the text is
+# read as a fallback and kept as evidence.
 #
 # Both the headline and the tiles are read, and they have to agree to produce a
 # PASS. UNKNOWN — not PASS — is returned until the verdict node exists at all,
@@ -214,24 +220,33 @@ IPHEY_JS = r"""
     }));
   const badTiles = tiles.filter(x => x.error).map(x => x.name || x.cls);
 
+  // "status Not detected" is the CLEAN row — excluded, or a passing run would
+  // file its own all-clear as a raised signal.
   const signals = Array.from(document.querySelectorAll('.detail-entry'))
     .map(el => ({
       cls: el.className,
       text: (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 300),
     }))
-    .filter(x => /detected|inconsisten|mismatch|spoof/i.test(x.text));
+    .filter(x => /detected|inconsisten|mismatch|spoof/i.test(x.text)
+                 && !/not detected/i.test(x.text));
 
   const el = document.getElementById('hero-status');
+  const heroClass = el ? el.className : null;
   const headline = el ? (el.textContent || '').trim()
-                      : ((t.match(/Looks\s+(Unreliable|Reliable)/i) || [])[1] || null);
+                      : ((t.match(/Looks\s+([A-Za-z]+)/i) || [])[1] || null);
   const mx = (t.match(/(\d+)\s*MX SCORE/i) || [])[1] || null;
 
-  const ev = {headline, heroClass: el ? el.className : null, mxScore: mx,
-              tiles, signals, text: t.slice(0, 3000)};
+  const ev = {headline, heroClass, mxScore: mx, tiles, signals,
+              text: t.slice(0, 3000)};
 
-  // "Unreliable" contains "reliable" — always test the negative first.
-  const bad  = headline ? /^unreliable$/i.test(headline) : false;
-  const good = headline ? /^reliable$/i.test(headline)   : false;
+  // iphey's own modifier class first; the wording only as a fallback. Note
+  // "Unreliable" contains "reliable", so the negative is always tested first.
+  let bad  = heroClass ? /hero-status--bad/.test(heroClass)  : false;
+  let good = heroClass ? /hero-status--good/.test(heroClass) : false;
+  if (!bad && !good && headline) {
+    bad  = /^un(reliable|trustworthy)$/i.test(headline);
+    good = /^(trustworthy|reliable)$/i.test(headline);
+  }
 
   if (!headline && !tiles.length)
     return {verdict: 'UNKNOWN', detail: 'verdict has not rendered yet', evidence: ev};
