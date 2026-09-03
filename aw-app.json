@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "Browser",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Chromium for AW workspaces with an interactive noVNC screen, CDP automation endpoint, workspace cookie-proxy support, and configurable window size.",
   "icon": "globe",
   "tier": "container",
@@ -17,8 +17,8 @@
     "image": "ghcr.io/tekflox/aw-app-browser:latest",
     "port": 7900,
     "resources": {
-      "cpus": 2.0,
-      "mem_mb": 2048
+      "cpus": 4.0,
+      "mem_mb": 4096
     },
     "run_flags_needed": [
       "--shm-size=1g"

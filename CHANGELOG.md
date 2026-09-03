@@ -11,6 +11,10 @@ notes here instead of expanding the marketplace description.
   Browser screen visibly laggier than Kali Linux — which runs the same kind
   of in-browser desktop at 2 CPU / 4096 MB and feels smooth. This only
   targets the CPU cap; it does not change the noVNC/KasmVNC protocol itself.
+- Doubled the container's CPU/memory limits again, from 2.0 CPU / 2048 MB to
+  4.0 CPU / 4096 MB. The first bump confirmed noVNC lag was CPU-bound and
+  fixed it; the user asked for a second doubling on top of that after
+  testing the 2.0 CPU build in production.
 - The Chromium profile now survives container recreation. It is bind-mounted
   from the workspace's durable app-data tree
   (`.aw-workspace/data/browser/chrome-profile`) instead of living in the
