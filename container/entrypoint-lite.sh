@@ -34,6 +34,53 @@ if [ ! -f "${FONT_DEST}/Arial.ttf" ]; then
     fi
 fi
 
+# ── Timezone: match the proxy's exit IP ───────────────────────────────────────
+# Intl.DateTimeFormat().resolvedOptions().timeZone against the geolocation of
+# the egress IP is a comparison CreepJS and iphey both make directly, and the
+# container's UTC default contradicted a US exit IP.
+#
+# Setting TZ on the Chrome process is the honest fix: the page, its workers and
+# Date all agree, with no patched function anywhere for a checker to notice.
+# Emulation.setTimezoneOverride would only reach page targets and leave workers
+# reporting UTC — a fresh contradiction in place of the old one.
+#
+# Resolved from the live exit IP rather than hardcoded, so it follows the proxy
+# if egress ever moves. Set AW_BROWSER_TIMEZONE to pin it explicitly. If nothing
+# resolves we leave the container default rather than guess.
+resolve_timezone() {
+    if [ -n "${AW_BROWSER_TIMEZONE:-}" ]; then
+        echo "${AW_BROWSER_TIMEZONE}"
+        return
+    fi
+    python3 - <<'PY'
+import json, os, urllib.request
+proxy = "http://%s:9124" % os.environ.get("AW_WORKSPACE_HOST", "127.0.0.1")
+opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+for url in ("http://ip-api.com/json/?fields=status,timezone",
+            "https://ipwho.is/",
+            "https://ipapi.co/json/"):
+    try:
+        data = json.loads(opener.open(url, timeout=8).read().decode())
+    except Exception:
+        continue
+    tz = data.get("timezone")
+    if isinstance(tz, dict):          # ipwho.is nests it as {"id": "..."}
+        tz = tz.get("id")
+    if tz and os.path.exists("/usr/share/zoneinfo/" + tz):
+        print(tz)
+        break
+PY
+}
+
+RESOLVED_TZ="$(resolve_timezone 2>/dev/null || true)"
+if [ -n "${RESOLVED_TZ}" ]; then
+    export TZ="${RESOLVED_TZ}"
+    echo "Timezone: ${TZ} (resolved from the proxy's exit IP)"
+else
+    echo "Timezone: could not resolve from the exit IP — keeping the container default (${TZ:-UTC})"
+fi
+
 export DISPLAY=:99
 SCREEN_WIDTH="${SCREEN_WIDTH:-1504}"
 SCREEN_HEIGHT="${SCREEN_HEIGHT:-846}"
@@ -91,7 +138,12 @@ CHROME_ARGS=(
     --force-color-profile=srgb
     --start-maximized
     --window-size="${SCREEN_WIDTH},${SCREEN_HEIGHT}"
-    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    # No --user-agent override. It used to force a macOS UA here while
+    # platform-override.py separately forced the same string through
+    # Emulation.setUserAgentOverride — two places that had to move together or
+    # the UA and the Client Hints would disagree, which is itself a detection
+    # signal. Chromium's own Linux UA is already correct and honest, so both
+    # overrides are gone and there is nothing left to keep in step.
     --accept-lang=en-US,pt-BR,pt,en
     # Two deployment shapes reach aw-app-proxy differently:
     #  - legacy shared-netns dev (`network_mode: container:aw-sandbox`): this
@@ -129,8 +181,23 @@ start_chrome() {
         fi
         sleep 1
     done
+}
 
-    PYTHONUNBUFFERED=1 python3 /opt/aw-browser/platform-override.py &
+# The override daemon is the ONLY thing keeping pages fingerprint-patched, and
+# it used to be launched with a bare `&` from inside start_chrome with nothing
+# watching it: if it died while Chrome stayed up, every page silently unpatched
+# and nothing anywhere said so — a durable false-green.
+#
+# Supervise it once, OUTSIDE the Chrome restart loop. It already waits for CDP
+# on startup and exits when the CDP session ends, so a plain restart loop rides
+# through a Chrome restart on its own. Starting it from start_chrome instead
+# would leak a second supervisor on every Chrome restart.
+supervise_platform_override() {
+    while true; do
+        PYTHONUNBUFFERED=1 python3 /opt/aw-browser/platform-override.py
+        echo "platform-override daemon exited — restarting in 3s"
+        sleep 3
+    done
 }
 
 # Selenium Grid intentionally disabled — CDP on port 9222 is used directly
@@ -166,6 +233,7 @@ echo "  noVNC: http://0.0.0.0:${VNC_PORT}"
 echo "======================================"
 
 start_chrome
+supervise_platform_override &
 while true; do
     wait $CHROME_PID 2>/dev/null || true
     echo "Chrome exited, restarting in 3s..."

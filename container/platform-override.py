@@ -1,6 +1,40 @@
-"""Apply macOS platform override to Chromium via CDP.
+"""Keep Chromium's fingerprint internally coherent, via CDP.
 
 Runs as a persistent background daemon.
+
+IDENTITY: honest Linux/Chromium. This used to claim a MacBook Pro 16" M4 Max
+on macOS 26.4.1, which the container contradicted five independent ways —
+SwiftShader in the WebGL extension list (30 extensions including NV_* ones
+Apple Metal cannot expose), MAX_TEXTURE_SIZE 8192 against Apple's 16384, an
+empty enumerateDevices(), deviceMemory 32, and a 3008x1692 @ dPR 2 screen
+implying a 6016px panel no Mac ships. Only 2 of ~50 WebGL getParameter values
+were ever spoofed, so the Mac claim was never coherent, and making it coherent
+would have meant fabricating ~20 more GL values, a synthetic extension list,
+fake media devices and Mac font metrics — every one a fresh contradiction for
+a checker like CreepJS, whose `lies` counter exists to find exactly that.
+
+A macOS claim contradicted by a Linux reality is a stronger bot signal than an
+honest Linux fingerprint. So this file now spoofs as little as possible; what
+is left is only what is both true-ish and population-blending:
+
+  navigator.webdriver  → false     insurance; already false in this container
+  navigator.deviceMemory → 8       this build reports 32 natively, which is
+                                   above the 8 GiB ceiling Chrome's Device
+                                   Memory implementation has clamped to since
+                                   2017 — an outlier worth flattening
+  screen 1920x1080                 instead of leaking the Xvfb geometry, which
+                                   is both an odd panel size and a giveaway
+
+Everything else is now whatever Chromium natively reports — Linux x86_64, the
+real SwiftShader renderer, the real UA, the real locale, the real core count —
+because on this container all of those are already true.
+
+Timezone is deliberately NOT handled here: it is set as the TZ environment
+variable on the Chrome process in entrypoint-lite.sh, resolved from the
+proxy's exit IP. Emulation.setTimezoneOverride would only reach page targets
+and leave workers reporting UTC, which is a contradiction of its own — the env
+var makes the page, its workers and Date all agree with no patched function
+anywhere.
 
 KEY DESIGN: Page.addScriptToEvaluateOnNewDocument is session-scoped — scripts
 are DELETED when the CDP connection closes. Therefore ALL commands must go
@@ -18,37 +52,27 @@ scripts). The daemon:
 """
 import asyncio
 import base64
+import hashlib
 import json
 import os
-import socket
 import struct
-import time
 import urllib.request
 
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 9222
 
-PLATFORM_OVERRIDE = {
-    "userAgent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-    ),
-    "platform": "MacIntel",
-    "acceptLanguage": "en-US,pt-BR;q=0.9,pt;q=0.8,en;q=0.7",
-    "userAgentMetadata": {
-        "brands": [
-            {"brand": "Google Chrome", "version": "147"},
-            {"brand": "Chromium", "version": "147"},
-            {"brand": "Not:A-Brand", "version": "99"},
-        ],
-        "fullVersion": "147.0.7727.138",
-        "platform": "macOS",
-        "platformVersion": "26.4.1",
-        "architecture": "arm",
-        "model": "",
-        "mobile": False,
-    },
-}
+# Chrome's Device Memory implementation rounds physical RAM to a power of two
+# and clamps it at 8 GiB, so effectively the whole Chrome population reports
+# <= 8. This container's Chromium 151 reports 32 natively (measured with this
+# daemon stopped), which stands out on its own.
+DEVICE_MEMORY_GB = 8
+
+# A 1080p desktop — by far the most common desktop resolution — rather than
+# the Xvfb geometry, which is an unusual panel size and a direct tell. Kept
+# consistent with the actual window: availHeight leaves room for a panel, and
+# the real outer window (~1503x845) fits inside it as a non-maximised window
+# would.
+SCREEN = {"width": 1920, "height": 1080, "availWidth": 1920, "availHeight": 1053}
 
 # ── Main-thread JS (runs on every new document via addScriptToEvaluateOnNewDocument)
 FINGERPRINT_JS = """
@@ -58,9 +82,6 @@ FINGERPRINT_JS = """
    *
    * _P: define on PROTOTYPE — avoids creating own-properties on navigator/
    *     screen that anti-bot libs detect via Object.getOwnPropertyDescriptor.
-   *
-   * _D: define directly on INSTANCE — used only where no prototype exists
-   *     (e.g. window.devicePixelRatio on Window).
    *
    * _native: make a JS getter .toString() return "[native code]" so
    *          Function.prototype.toString checks pass.
@@ -89,214 +110,100 @@ FINGERPRINT_JS = """
     } catch(e) {}
   };
 
-  const _D = (o, k, v) => {
-    try {
-      const getter = _native(() => v, `get ${k}`);
-      Object.defineProperty(o, k, {
-        get: getter, configurable: true, enumerable: true,
-      });
-    } catch(e) {}
-  };
-
   /* ── Remove automation / webdriver flag ─────────────────────────────── */
   // navigator.webdriver is set to true by Chrome when automated via CDP.
   // Override at prototype level so own-property checks show nothing.
+  // (Already false in this container — kept as insurance, not as a fix.)
   try {
     _P(Navigator.prototype, 'webdriver', false);
   } catch(e) {}
 
-  /* ── navigator (prototype-level overrides — no own-property footprint) ─ */
-  _P(Navigator.prototype, 'platform',            'MacIntel');
-  _P(Navigator.prototype, 'language',            'en-US');
-  _P(Navigator.prototype, 'languages',           Object.freeze(['en-US', 'pt-BR', 'pt', 'en']));
-  _P(Navigator.prototype, 'hardwareConcurrency', 16);
-  _P(Navigator.prototype, 'deviceMemory',        32);
-  // oscpu is a Firefox-only property; patching it on Chrome's Navigator
-  // would create an unexpected own-property — skip it.
+  /* ── navigator.deviceMemory ──────────────────────────────────────────── */
+  // The one navigator value this container gets wrong on its own: it reports
+  // 32, above the 8 GiB ceiling Chrome clamps to. platform / language /
+  // languages / hardwareConcurrency are all already correct natively and are
+  // deliberately NOT patched — every unnecessary override is another
+  // accessor for a checker to notice.
+  _P(Navigator.prototype, 'deviceMemory', __DEVICE_MEMORY__);
 
-  /* ── navigator.userAgentData (Client Hints) ── */
-  try {
-    const _brands = Object.freeze([
-      { brand: 'Google Chrome', version: '147' },
-      { brand: 'Chromium',      version: '147' },
-      { brand: 'Not:A-Brand',   version: '99'  },
-    ]);
-    const _uad = {
-      brands:   _brands,
-      mobile:   false,
-      platform: 'macOS',
-      getHighEntropyValues: _native(async () => ({
-        brands: _brands,
-        fullVersionList: Object.freeze([
-          { brand: 'Google Chrome', version: '147.0.7727.138' },
-          { brand: 'Chromium',      version: '147.0.7727.138' },
-          { brand: 'Not:A-Brand',   version: '99.0.0.0'  },
-        ]),
-        mobile:          false,
-        platform:        'macOS',
-        platformVersion: '26.4.1',
-        architecture:    'arm',
-        bitness:         '64',
-        model:           '',
-        uaFullVersion:   '147.0.7727.138',
-      }), 'getHighEntropyValues'),
-      toJSON: _native(() => ({ brands: _brands, mobile: false, platform: 'macOS' }), 'toJSON'),
-    };
-    _P(Navigator.prototype, 'userAgentData', _uad);
-  } catch(e) {}
+  /* ── screen ──────────────────────────────────────────────────────────── */
+  // Overridden on Screen.prototype to avoid an own-property tampering signal.
+  // colorDepth/pixelDepth (24) and devicePixelRatio (1) are already correct
+  // natively, so they are left alone.
+  const _S = __SCREEN__;
+  _P(Screen.prototype, 'width',       _S.width);
+  _P(Screen.prototype, 'height',      _S.height);
+  _P(Screen.prototype, 'availWidth',  _S.availWidth);
+  _P(Screen.prototype, 'availHeight', _S.availHeight);
 
-  /* ── screen (MacBook Pro 16-inch M4 Max, Retina 3008×1692, menu bar 30px)
-   *   Override on Screen.prototype to avoid own-property tampering signal. ── */
-  _P(Screen.prototype, 'width',      3008);
-  _P(Screen.prototype, 'height',     1692);
-  _P(Screen.prototype, 'availWidth', 3008);
-  _P(Screen.prototype, 'availHeight',1662);
-  _P(Screen.prototype, 'colorDepth',   24);
-  _P(Screen.prototype, 'pixelDepth',   24);
-  /* devicePixelRatio lives on Window, not a clean prototype — use instance override */
-  _D(window,  'devicePixelRatio', 2);
+  // WebGL vendor/renderer are NOT spoofed any more. They honestly report
+  // SwiftShader, which is what the extension list, MAX_TEXTURE_SIZE and the
+  // rest of the ~50 getParameter values already said. Software GL on Linux is
+  // ordinary; software GL on a Mac is impossible, which is what the old Apple
+  // Metal string claimed.
 
-  /* ── WebGL (Apple M4 Max via ANGLE Metal) ── */
-  const _VENDOR   = 'Google Inc. (Apple)';
-  const _RENDERER = 'ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)';
-  function patchWebGL(Ctx) {
-    if (!Ctx) return;
-    const orig = Ctx.prototype.getParameter;
-    Ctx.prototype.getParameter = _native(function(p) {
-      if (p === 37445) return _VENDOR;
-      if (p === 37446) return _RENDERER;
-      return orig.call(this, p);
-    }, 'getParameter');
-  }
-  try { patchWebGL(WebGLRenderingContext);  } catch(e) {}
-  try { patchWebGL(WebGL2RenderingContext); } catch(e) {}
+  // window.chrome.runtime is NOT added. Debian's Chromium genuinely lacks it,
+  // and navigator.userAgentData honestly brands this as Chromium — adding a
+  // Google-Chrome-only object on top of a Chromium brand list would be a new
+  // contradiction, not a fix.
 
-  /* ── window.chrome.runtime — present in all real Chrome builds ── */
-  // FingerprintJS Pro checks: window.chrome exists but chrome.runtime is
-  // undefined → automated/headless signal.  Patch to add a minimal runtime.
-  try {
-    if (window.chrome && !window.chrome.runtime) {
-      window.chrome.runtime = {
-        id:         undefined,
-        connect:    _native(function connect(){}, 'connect'),
-        sendMessage:_native(function sendMessage(){}, 'sendMessage'),
-        onConnect:  { addListener: _native(function addListener(){}, 'addListener') },
-        onMessage:  { addListener: _native(function addListener(){}, 'addListener') },
-        OnInstalledReason: { CHROME_UPDATE:'chrome_update', INSTALL:'install', SHARED_MODULE_UPDATE:'shared_module_update', UPDATE:'update' },
-        PlatformArch: { ARM:'arm', ARM64:'arm64', MIPS:'mips', MIPS64:'mips64', X86_32:'x86-32', X86_64:'x86-64' },
-        PlatformOs:   { ANDROID:'android', CROS:'cros', LINUX:'linux', MAC:'mac', OPENBSD:'openbsd', WIN:'win' },
-        RequestUpdateCheckStatus: { NO_UPDATE:'no_update', THROTTLED:'throttled', UPDATE_AVAILABLE:'update_available' },
-      };
-    }
-  } catch(e) {}
+  // SpeechSynthesis voices are NOT faked. The old fallback injected a macOS
+  // voice ('com.apple.speech.synthesis.voice.samantha') on a Linux box; an
+  // empty voice list is ordinary on Linux without speech-dispatcher.
 
-  /* ── Speech Synthesis — add a minimal macOS-like voice to avoid 0-voices signal ── */
-  try {
-    const _origGetVoices = SpeechSynthesis.prototype.getVoices;
-    if (_origGetVoices) {
-      const _fakeVoices = [{
-        default: true, lang: 'en-US', localService: true,
-        name: 'Samantha', voiceURI: 'com.apple.speech.synthesis.voice.samantha',
-      }];
-      SpeechSynthesis.prototype.getVoices = _native(function getVoices() {
-        const real = _origGetVoices.call(this);
-        return real && real.length > 0 ? real : _fakeVoices;
-      }, 'getVoices');
-    }
-  } catch(e) {}
-
-  /* ── FontFace proxy: map obscure Mac-only fonts → Liberation equivalents ── */
-  try {
-    const _FF = window.FontFace;
-    const _MAP = {
-      'gill sans': 'Liberation Sans', 'optima': 'Liberation Sans',
-      'futura': 'Liberation Sans', 'lucida grande': 'Liberation Sans',
-      'calibri': 'Liberation Sans', 'candara': 'Liberation Sans',
-      'segoe ui': 'Liberation Sans',
-      'garamond': 'Liberation Serif', 'baskerville': 'Liberation Serif',
-      'palatino': 'Liberation Serif', 'book antiqua': 'Liberation Serif',
-      'cambria': 'Liberation Serif',
-      'monaco': 'Liberation Mono', 'menlo': 'Liberation Mono',
-    };
-    function _remapSrc(src) {
-      if (typeof src !== 'string') return src;
-      return src.replace(/local\\(['"]?([^'"()]+)['"]?\\)/gi, function(m, name) {
-        const key = name.trim().toLowerCase();
-        const mapped = _MAP[key];
-        return mapped ? 'local("' + mapped + '")' : m;
-      });
-    }
-    window.FontFace = _native(function FontFace(family, source, descriptors) {
-      return new _FF(family, _remapSrc(source), descriptors);
-    }, 'FontFace');
-    window.FontFace.prototype = _FF.prototype;
-  } catch(e) {}
+  // The FontFace remap of Mac-only families (Monaco, Menlo, Lucida Grande…)
+  // is gone for the same reason, along with the matching fontconfig aliases.
+  // The msttcorefonts set really is installed (see the Dockerfile), so Arial,
+  // Times New Roman, Courier New and friends resolve honestly.
 
 })();
 """
 
 # ── Worker-scope patch — injected via Runtime.evaluate when a worker starts ──
 # Runs BEFORE any worker code (waitForDebuggerOnStart ensures this).
-# Uses prototype-level overrides to avoid own-property tampering signals.
+#
+# deviceMemory is the only thing left to fix here, and it MUST be fixed here:
+# CreepJS reads navigator from a worker as well as from the main thread and
+# compares them, so clamping it on the page and leaving the worker at 32 would
+# manufacture the exact kind of contradiction this file is trying to remove.
+# Everything else a worker exposes (platform, languages, hardwareConcurrency,
+# userAgentData, WebGL) is already honest, so nothing else is touched.
 WORKER_PATCH_JS = """
 (function(){
-  const _V='Google Inc. (Apple)';
-  const _R='ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)';
-  const _b=Object.freeze([
-    {brand:'Google Chrome',version:'147'},
-    {brand:'Chromium',version:'147'},
-    {brand:'Not:A-Brand',version:'99'}
-  ]);
-  const _uad={
-    brands:_b, mobile:false, platform:'macOS',
-    getHighEntropyValues: async () => ({
-      brands: _b,
-      fullVersionList: Object.freeze([
-        {brand:'Google Chrome',version:'147.0.7727.138'},
-        {brand:'Chromium',version:'147.0.7727.138'},
-        {brand:'Not:A-Brand',version:'99.0.0.0'}
-      ]),
-      mobile:false, platform:'macOS', platformVersion:'26.4.1',
-      architecture:'arm', bitness:'64', model:'', uaFullVersion:'147.0.7727.138'
-    }),
-    toJSON: () => ({brands:_b, mobile:false, platform:'macOS'})
+  /* Same [native code] masking as the main thread — a worker's navigator gets
+     inspected just as closely as the page's. */
+  const _native=(fn,name)=>{
+    try {
+      Object.defineProperty(fn,'name',{value:name||'',configurable:true});
+      const _src=`function ${name||''}() { [native code] }`;
+      Object.defineProperty(fn,'toString',{value:()=>_src,configurable:true,writable:true});
+    } catch(e){}
+    return fn;
   };
-  /* Use prototype-level definition where possible */
   const _p=(proto,k,v)=>{
-    try { Object.defineProperty(proto,k,{get:()=>v, configurable:true, enumerable:true}); } catch(e){}
+    try {
+      Object.defineProperty(proto,k,{
+        get:_native(()=>v,`get ${k}`), configurable:true, enumerable:true});
+    } catch(e){}
   };
-  if(typeof navigator!=='undefined' && typeof WorkerNavigator!=='undefined'){
-    _p(WorkerNavigator.prototype,'hardwareConcurrency',16);
-    _p(WorkerNavigator.prototype,'deviceMemory',32);
-    _p(WorkerNavigator.prototype,'language','en-US');
-    _p(WorkerNavigator.prototype,'languages',Object.freeze(['en-US','pt-BR','pt','en']));
-    _p(WorkerNavigator.prototype,'userAgentData',_uad);
-    _p(WorkerNavigator.prototype,'platform','MacIntel');
+  if(typeof WorkerNavigator!=='undefined'){
+    _p(WorkerNavigator.prototype,'deviceMemory',__DEVICE_MEMORY__);
   } else if(typeof navigator!=='undefined'){
     /* fallback for environments without WorkerNavigator */
-    const _d=(o,k,v)=>{
-      try { Object.defineProperty(o,k,{get:()=>v, configurable:true, enumerable:true}); } catch(e){}
-    };
-    _d(navigator,'hardwareConcurrency',16);
-    _d(navigator,'deviceMemory',32);
-    _d(navigator,'language','en-US');
-    _d(navigator,'languages',Object.freeze(['en-US','pt-BR','pt','en']));
-    _d(navigator,'userAgentData',_uad);
-    _d(navigator,'platform','MacIntel');
+    _p(navigator,'deviceMemory',__DEVICE_MEMORY__);
   }
-  function pGL(C){
-    if(!C||!C.prototype)return;
-    const o=C.prototype.getParameter;
-    C.prototype.getParameter=function(p){
-      if(p===37445)return _V;
-      if(p===37446)return _R;
-      return o.call(this,p);
-    };
-  }
-  try{pGL(WebGLRenderingContext);}catch(e){}
-  try{pGL(WebGL2RenderingContext);}catch(e){}
 })();
 """
+
+
+def _fill(js: str) -> str:
+    """Inline the Python-side constants so page and worker cannot drift."""
+    return (js.replace("__DEVICE_MEMORY__", json.dumps(DEVICE_MEMORY_GB))
+              .replace("__SCREEN__", json.dumps(SCREEN)))
+
+
+FINGERPRINT_JS = _fill(FINGERPRINT_JS)
+WORKER_PATCH_JS = _fill(WORKER_PATCH_JS)
 
 
 # ── Async CDP session ──────────────────────────────────────────────────────────
@@ -401,7 +308,25 @@ class AsyncCDPSession:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+def _build_marker() -> str:
+    """sha256 of this very file.
+
+    The app manifest pins ghcr.io/tekflox/aw-app-browser:latest, so a green CI
+    run does not prove a rebuilt image is what the container is actually
+    running. Printing the hash of the live file at startup means
+    `podman logs aw-app-browser` can settle that question on its own — compare
+    it with `sha256sum container/platform-override.py` in the repo.
+    """
+    try:
+        return hashlib.sha256(
+            open(os.path.abspath(__file__), "rb").read()).hexdigest()[:16]
+    except Exception:
+        return "unknown"
+
+
 async def async_main():
+    print(f"platform-override.py build {_build_marker()}", flush=True)
+
     # ── 1. Wait for Chrome's CDP to be available ───────────────────────────
     browser_ws = None
     for _ in range(30):
@@ -434,10 +359,14 @@ async def async_main():
     attached_sessions: set = set()
 
     async def apply_page_patches(session_id: str):
-        """Apply UA override + initScript to a page via the persistent session."""
-        # UA override
-        await cdp.send("Emulation.setUserAgentOverride", PLATFORM_OVERRIDE,
-                       session_id=session_id)
+        """Apply the initScript to a page via the persistent session.
+
+        No Emulation.setUserAgentOverride any more. The UA used to be set here
+        AND as --user-agent in entrypoint-lite.sh, two places that had to be
+        kept in step or the UA and the Client Hints would disagree — which is
+        itself a detection signal. Chromium's own Linux UA is correct, so both
+        overrides are gone and there is nothing left to keep in step.
+        """
         # InitScript — persists as long as this CDPSession stays open; runs
         # BEFORE any page JavaScript for navigations driven by THIS session.
         await cdp.send("Page.addScriptToEvaluateOnNewDocument",
@@ -519,8 +448,14 @@ async def async_main():
     await cdp.send("Target.setDiscoverTargets", {"discover": True})
 
     print("Platform override daemon running.", flush=True)
-    print("  Pages:   UA=Chrome147/macOS, platform=MacIntel, cores=16, ram=32, screen=3008x1692", flush=True)
-    print("  Workers: hardwareConcurrency=16, deviceMemory=32, macOS 26.4.1 arm_64, WebGL=Apple M4", flush=True)
+    print(f"  identity: honest Linux/Chromium — no UA, platform, locale or "
+          f"WebGL override", flush=True)
+    print(f"  Pages:   deviceMemory={DEVICE_MEMORY_GB}, "
+          f"screen={SCREEN['width']}x{SCREEN['height']}, webdriver=false",
+          flush=True)
+    print(f"  Workers: deviceMemory={DEVICE_MEMORY_GB}", flush=True)
+    print(f"  TZ={os.environ.get('TZ') or 'unset (container default)'}",
+          flush=True)
 
     # ── 4. Run event loop forever ──────────────────────────────────────────
     await cdp.run()
