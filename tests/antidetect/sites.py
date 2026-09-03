@@ -177,15 +177,78 @@ BROWSERLEAKS_JS_JS = r"""
 })()
 """
 
+# Read iphey's OWN verdict node, never the page prose.
+#
+# The previous version tested `/trustworthy/i` against innerText to mean PASS.
+# iphey prints "How trustworthy is your identity" as the static caption under
+# the MX Score tile on every single load, pass or fail, so that regex matched
+# unconditionally — the check could only ever have failed on the literal string
+# "not trustworthy", which iphey does not use. It reported PASS on a run whose
+# own screenshot shows the red "Unreliable" headline (QA, 2026-09-03). A Tier B
+# check that cannot fail is worse than no check: it reads as evidence.
+#
+# What iphey actually renders:
+#   #hero-status                       "Reliable" | "Unreliable" (+ a --bad
+#                                      modifier class on the bad one)
+#   a.code-block.<name>-tile           one per section; the flagged one carries
+#                                      the `code-block--error` modifier
+#   .detail-entry > .detail-value      the individual signals, e.g.
+#                                      "Detected an inconsistent browser
+#                                      fingerprint (pineapple)"
+#
+# Both the headline and the tiles are read, and they have to agree to produce a
+# PASS. UNKNOWN — not PASS — is returned until the verdict node exists at all,
+# so a page that never finished deciding keeps the poller waiting and then ends
+# the run as UNKNOWN rather than as a pass nobody measured.
 IPHEY_JS = r"""
 (() => {
   const t = (document.body ? document.body.innerText : '');
   if (!t.trim()) return {verdict: 'UNKNOWN', detail: 'empty body', evidence: null};
-  if (/your browser is not trustworthy|not trustworthy/i.test(t))
-    return {verdict: 'FAIL', detail: 'iphey: not trustworthy', evidence: t.slice(0, 3000)};
-  if (/trustworthy/i.test(t))
-    return {verdict: 'PASS', detail: 'iphey: trustworthy', evidence: t.slice(0, 3000)};
-  return {verdict: 'UNKNOWN', detail: 'no verdict text found', evidence: t.slice(0, 3000)};
+
+  const tiles = Array.from(document.querySelectorAll('a[class*="code-block"]'))
+    .map(el => ({
+      name: (el.className.match(/([a-z]+)-tile/) || [])[1] || null,
+      error: /code-block--error/.test(el.className),
+      cls: el.className,
+      text: (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+    }));
+  const badTiles = tiles.filter(x => x.error).map(x => x.name || x.cls);
+
+  const signals = Array.from(document.querySelectorAll('.detail-entry'))
+    .map(el => ({
+      cls: el.className,
+      text: (el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 300),
+    }))
+    .filter(x => /detected|inconsisten|mismatch|spoof/i.test(x.text));
+
+  const el = document.getElementById('hero-status');
+  const headline = el ? (el.textContent || '').trim()
+                      : ((t.match(/Looks\s+(Unreliable|Reliable)/i) || [])[1] || null);
+  const mx = (t.match(/(\d+)\s*MX SCORE/i) || [])[1] || null;
+
+  const ev = {headline, heroClass: el ? el.className : null, mxScore: mx,
+              tiles, signals, text: t.slice(0, 3000)};
+
+  // "Unreliable" contains "reliable" — always test the negative first.
+  const bad  = headline ? /^unreliable$/i.test(headline) : false;
+  const good = headline ? /^reliable$/i.test(headline)   : false;
+
+  if (!headline && !tiles.length)
+    return {verdict: 'UNKNOWN', detail: 'verdict has not rendered yet', evidence: ev};
+
+  const sigText = signals.length ? ' — ' + signals.map(s => s.text).join('; ') : '';
+  if (bad || badTiles.length)
+    return {verdict: 'FAIL',
+            detail: `iphey: "${headline}", MX ${mx}, flagged: `
+                  + (badTiles.join(', ') || 'none named') + sigText,
+            evidence: ev};
+  if (good)
+    return {verdict: 'PASS',
+            detail: `iphey: "${headline}", MX ${mx}, no tile flagged`,
+            evidence: ev};
+  return {verdict: 'UNKNOWN',
+          detail: `no headline verdict yet (${tiles.length} tile(s) rendered, none flagged)`,
+          evidence: ev};
 })()
 """
 
@@ -236,7 +299,8 @@ SITES = [
     {"id": "iphey", "tier": "B",
      "url": "https://iphey.com/",
      "settle": 6.0, "max_wait": 50.0, "extract": IPHEY_JS,
-     "note": "no platform contradiction"},
+     "note": "headline must read 'Reliable' and no section tile may carry "
+             "code-block--error"},
 
     # ── Tier C — informational, CANNOT block ───────────────────────────────
     # These have no machine-readable verdict, so their extractor always

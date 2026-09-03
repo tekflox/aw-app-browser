@@ -22,11 +22,33 @@ is left is only what is both true-ish and population-blending:
                                    above the 8 GiB ceiling Chrome's Device
                                    Memory implementation has clamped to since
                                    2017 — an outlier worth flattening
-  screen 1920x1080                 instead of leaking the Xvfb geometry, which
-                                   is both an odd panel size and a giveaway
 
-Everything else is now whatever Chromium natively reports — Linux x86_64, the
-real SwiftShader renderer, the real UA, the real locale, the real core count —
+The screen override is GONE, and it is worth saying why, because it was the
+last surviving piece of the fabricated identity and it survived on exactly the
+reasoning this file rejects everywhere else. It reported 1920x1080 "instead of
+leaking the Xvfb geometry, which is both an odd panel size and a giveaway" —
+population-blending in isolation, but the window it sits in is 1504x846
+(entrypoint-lite.sh starts Xvfb at that size and passes the same numbers to
+--window-size --start-maximized), so the claim was a 1920x1080 panel whose
+maximised window covers 1504x846 of it. That is not a fingerprint a real
+machine can produce.
+
+iphey caught it. Bisected against the live detector on 2026-09-03 by holding
+the container constant and overriding one value at a time:
+
+  screen 1920x1080, deviceMemory 8   → "Unreliable", MX 80, browser flagged:
+                                       "inconsistent browser fingerprint"
+  screen 1920x1080, deviceMemory 32  → same flag — not deviceMemory
+  screen 1504x846,  deviceMemory 8   → flag GONE, MX 90, browser tile clean
+  screen 1504x846,  deviceMemory 32  → flag gone
+
+So the honest geometry is reported now, whatever the container is sized to,
+and screen agrees with the window it is actually in. If 1504x846 is itself
+judged too unusual, the fix is to change SCREEN_WIDTH/SCREEN_HEIGHT so the
+real display is a common size — not to claim a display we do not have.
+
+Everything else is whatever Chromium natively reports — Linux x86_64, the real
+SwiftShader renderer, the real UA, the real locale, the real core count —
 because on this container all of those are already true.
 
 Timezone is deliberately NOT handled here: it is set as the TZ environment
@@ -66,13 +88,6 @@ CDP_PORT = 9222
 # <= 8. This container's Chromium 151 reports 32 natively (measured with this
 # daemon stopped), which stands out on its own.
 DEVICE_MEMORY_GB = 8
-
-# A 1080p desktop — by far the most common desktop resolution — rather than
-# the Xvfb geometry, which is an unusual panel size and a direct tell. Kept
-# consistent with the actual window: availHeight leaves room for a panel, and
-# the real outer window (~1503x845) fits inside it as a non-maximised window
-# would.
-SCREEN = {"width": 1920, "height": 1080, "availWidth": 1920, "availHeight": 1053}
 
 # ── Main-thread JS (runs on every new document via addScriptToEvaluateOnNewDocument)
 FINGERPRINT_JS = """
@@ -126,15 +141,12 @@ FINGERPRINT_JS = """
   // accessor for a checker to notice.
   _P(Navigator.prototype, 'deviceMemory', __DEVICE_MEMORY__);
 
-  /* ── screen ──────────────────────────────────────────────────────────── */
-  // Overridden on Screen.prototype to avoid an own-property tampering signal.
-  // colorDepth/pixelDepth (24) and devicePixelRatio (1) are already correct
-  // natively, so they are left alone.
-  const _S = __SCREEN__;
-  _P(Screen.prototype, 'width',       _S.width);
-  _P(Screen.prototype, 'height',      _S.height);
-  _P(Screen.prototype, 'availWidth',  _S.availWidth);
-  _P(Screen.prototype, 'availHeight', _S.availHeight);
+  // screen is NOT overridden any more. It used to claim 1920x1080 while the
+  // window Chrome actually runs in is 1504x846 — a panel no window on this
+  // container could be maximised inside, which iphey's fingerprint-consistency
+  // check flagged (see the module docstring for the bisect). The Xvfb geometry
+  // is honest and self-consistent with outerWidth/outerHeight, which is the
+  // whole principle this file is built on.
 
   // WebGL vendor/renderer are NOT spoofed any more. They honestly report
   // SwiftShader, which is what the extension list, MAX_TEXTURE_SIZE and the
@@ -198,8 +210,7 @@ WORKER_PATCH_JS = """
 
 def _fill(js: str) -> str:
     """Inline the Python-side constants so page and worker cannot drift."""
-    return (js.replace("__DEVICE_MEMORY__", json.dumps(DEVICE_MEMORY_GB))
-              .replace("__SCREEN__", json.dumps(SCREEN)))
+    return js.replace("__DEVICE_MEMORY__", json.dumps(DEVICE_MEMORY_GB))
 
 
 FINGERPRINT_JS = _fill(FINGERPRINT_JS)
@@ -448,10 +459,9 @@ async def async_main():
     await cdp.send("Target.setDiscoverTargets", {"discover": True})
 
     print("Platform override daemon running.", flush=True)
-    print(f"  identity: honest Linux/Chromium — no UA, platform, locale or "
-          f"WebGL override", flush=True)
-    print(f"  Pages:   deviceMemory={DEVICE_MEMORY_GB}, "
-          f"screen={SCREEN['width']}x{SCREEN['height']}, webdriver=false",
+    print(f"  identity: honest Linux/Chromium — no UA, platform, locale, "
+          f"screen or WebGL override", flush=True)
+    print(f"  Pages:   deviceMemory={DEVICE_MEMORY_GB}, webdriver=false",
           flush=True)
     print(f"  Workers: deviceMemory={DEVICE_MEMORY_GB}", flush=True)
     print(f"  TZ={os.environ.get('TZ') or 'unset (container default)'}",

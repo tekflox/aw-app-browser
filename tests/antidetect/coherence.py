@@ -56,6 +56,11 @@ COLLECT_JS = r"""
     availWidth: screen.availWidth, availHeight: screen.availHeight,
     colorDepth: screen.colorDepth, pixelDepth: screen.pixelDepth,
     devicePixelRatio: window.devicePixelRatio,
+    // The window the screen is supposed to contain — without these there is
+    // nothing to check screen.* against, which is how a 1920x1080 claim in a
+    // 1504x846 window went unnoticed until iphey flagged it.
+    outerWidth: window.outerWidth, outerHeight: window.outerHeight,
+    innerWidth: window.innerWidth, innerHeight: window.innerHeight,
   }));
 
   await safe('webgl', async () => {
@@ -360,6 +365,34 @@ def assess(raw: dict, geo: dict | None) -> list[dict]:
                            f"UA family {ua_fam} is compatible with renderer "
                            f"family {fam}",
                            {"renderer": gl.get("unmaskedRenderer")}))
+
+    # ── 6b. screen vs the window it is supposed to contain ─────────────────
+    # Added after iphey flagged "inconsistent browser fingerprint (pineapple)"
+    # on 2026-09-03: the daemon reported screen 1920x1080 while Chrome runs
+    # --start-maximized in a 1504x846 Xvfb, so the claimed panel was 416x234
+    # larger than the maximised window filling it. Nothing in this file looked
+    # at the two together, so the only thing that ever noticed was a detector.
+    #
+    # NON-GATING, and deliberately so: a real user's window is routinely far
+    # smaller than their screen, so a gap is not by itself evidence of
+    # anything. What it does is put both numbers in the summary side by side,
+    # where a fabricated screen is obvious. A window LARGER than its screen is
+    # a different matter — that is impossible on real hardware, and it fails.
+    sc = raw.get("screen") or {}
+    sw, sh = sc.get("width"), sc.get("height")
+    ow, oh = sc.get("outerWidth"), sc.get("outerHeight")
+    if not all(isinstance(v, (int, float)) for v in (sw, sh, ow, oh)):
+        res.append(_na("screen-vs-window", "screen or window metrics missing",
+                       sc, gating=False))
+    elif ow > sw or oh > sh:
+        res.append(_bad("screen-vs-window",
+                        f"window {ow}x{oh} is LARGER than the screen "
+                        f"{sw}x{sh} — impossible on real hardware", sc))
+    else:
+        gap = (sw - ow, sh - oh)
+        res.append(_ok("screen-vs-window",
+                       f"screen {sw}x{sh}, window {ow}x{oh} "
+                       f"(unused {gap[0]}x{gap[1]}px)", sc, gating=False))
 
     # ── 7-9. the three the Architect measured clean — asserted, not patched ─
     cands = raw.get("webrtc")
