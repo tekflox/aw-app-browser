@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "browser",
   "name": "Browser",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Chromium for AW workspaces with an interactive noVNC screen, CDP automation endpoint, workspace cookie-proxy support, and configurable window size.",
   "icon": "globe",
   "tier": "container",
