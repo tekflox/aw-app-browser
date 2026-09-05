@@ -164,10 +164,14 @@ CHROME_ARGS=(
     # candidate gathering runs over the OS network stack directly and ignores
     # it, leaking this container's own direct-to-internet IP alongside the
     # proxied one — a residential-HTTP/datacenter-WebRTC mismatch that reads
-    # as a textbook proxy/automation signal. This forces ICE to only gather
-    # candidates reachable through the proxied path (so it fails closed
-    # instead of leaking a direct host candidate).
-    --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+    # as a textbook proxy/automation signal.
+    #
+    # The obvious fix, --force-webrtc-ip-handling-policy=disable_non_proxied_udp
+    # on the command line, does NOT work here: verified live, the srflx (STUN)
+    # candidate still leaked the direct IP with this flag set. The Dockerfile's
+    # /etc/chromium/policies/managed/webrtc-policy.json is what actually
+    # enforces it — WebRtcIPHandling is a managed-policy-only control point in
+    # this Chromium build, not a command-line one.
 )
 
 start_chrome() {

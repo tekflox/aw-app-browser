@@ -44,6 +44,17 @@ COPY cdp_proxy.py /opt/aw-browser/cdp_proxy.py
 # document.fonts.check('12px Arial') etc. return true.
 COPY fonts-aliases.conf /etc/fonts/conf.d/99-aw-aliases.conf
 
+# Force WebRTC's IP handling policy via Chromium's managed-policy mechanism.
+# --force-webrtc-ip-handling-policy on the command line looked right but
+# does NOT actually stop ICE from gathering a server-reflexive (STUN)
+# candidate off the container's real interface — verified live: the srflx
+# candidate still leaked the direct-to-internet IP with the flag set. The
+# managed-policy JSON under /etc/chromium/policies/managed/ is the
+# mechanism Chromium actually enforces this through (see
+# chromeenterprise.google/policies/web-rtc-ip-handling).
+RUN mkdir -p /etc/chromium/policies/managed
+COPY webrtc-policy.json /etc/chromium/policies/managed/webrtc-policy.json
+
 COPY entrypoint-lite.sh /opt/aw-browser/entrypoint-lite.sh
 RUN chmod +x /opt/aw-browser/entrypoint-lite.sh
 
