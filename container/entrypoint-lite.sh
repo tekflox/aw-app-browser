@@ -160,6 +160,14 @@ CHROME_ARGS=(
     # failed with ERR_PROXY_CONNECTION_FAILED.
     --proxy-server="${AW_WORKSPACE_HOST:-127.0.0.1}:9124"
     "--proxy-bypass-list=<-loopback>"
+    # --proxy-server only covers Chrome's HTTP(S)/TCP path. WebRTC ICE/STUN
+    # candidate gathering runs over the OS network stack directly and ignores
+    # it, leaking this container's own direct-to-internet IP alongside the
+    # proxied one — a residential-HTTP/datacenter-WebRTC mismatch that reads
+    # as a textbook proxy/automation signal. This forces ICE to only gather
+    # candidates reachable through the proxied path (so it fails closed
+    # instead of leaking a direct host candidate).
+    --force-webrtc-ip-handling-policy=disable_non_proxied_udp
 )
 
 start_chrome() {
