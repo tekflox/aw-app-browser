@@ -4,8 +4,8 @@ name: Build Browser image
 # Push builds run only for release bump commits so `latest` follows the tagged
 # manifest release. Manual rebuilds remain available via workflow_dispatch.
 #
-#   gh workflow run build.yml                        # amd64
-#   gh workflow run build.yml -f include_arm64=true  # + linux/arm64 (QEMU)
+#   gh workflow run build.yml                          # amd64 + linux/arm64 (default)
+#   gh workflow run build.yml -f include_arm64=false   # amd64 only (skip QEMU arm64)
 #
 # One-time manual step after the FIRST push: the package is created private
 # regardless of this repo's own visibility, and GitHub has no REST/GraphQL
@@ -26,7 +26,7 @@ on:
       include_arm64:
         description: 'Also build linux/arm64 (QEMU emulation; slower)'
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: build-aw-app-browser-${{ github.ref }}
