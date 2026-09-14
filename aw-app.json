@@ -23,6 +23,9 @@
     "run_flags_needed": [
       "--shm-size=1g"
     ],
+    "host_power_optional": [
+      "gpu"
+    ],
     "volumes": [
       {
         "source": "$AW_APP_DATA/chrome-profile",
@@ -34,7 +37,8 @@
   },
   "permissions": [
     "containers:manage",
-    "fs:workspace-data"
+    "fs:workspace-data",
+    "host:device-gpu"
   ],
   "contributes": {
     "windows": [

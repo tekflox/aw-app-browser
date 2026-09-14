@@ -115,15 +115,87 @@ if [ -z "$CHROMIUM" ]; then
 fi
 echo "Using Chromium: $CHROMIUM"
 
+# ── GPU vs swiftshader: pick by what the container actually received ─────────
+# runtime.host_power_optional grants a directory device (/dev/dri) when the
+# host opted in with --host-power=gpu AND actually has one; a host that
+# didn't opt in, or has no GPU, leaves /dev/dri absent — same as today.
+#
+# The trap: /dev/dri/renderD* ships crw-rw---- root:render, and seluser
+# (uid 1200) is in no such group even when the node is present — an open()
+# fails silently and Chromium falls back to software with nothing logged.
+# So this tests an actual O_RDWR open, not just node existence, and joins
+# seluser into the node's owning group first via the passwordless sudo the
+# image already grants it for the profile-dir chown above.
+#
+# Populated by detect_gpu_render_node(): GPU_RENDER_NODE/GPU_GROUP only set
+# on success; GPU_DETECT_REASON always set, for the log line below.
+GPU_RENDER_NODE=""
+GPU_GROUP=""
+GPU_DETECT_REASON=""
+
+detect_gpu_render_node() {
+    local node gid group_name found_any=0
+
+    if [ ! -d /dev/dri ]; then
+        GPU_DETECT_REASON="no /dev/dri in this container (host did not grant gpu host-power, or has no GPU)"
+        return 1
+    fi
+
+    for node in /dev/dri/renderD*; do
+        [ -e "$node" ] || continue
+        found_any=1
+        gid=$(stat -c '%g' "$node" 2>/dev/null) || continue
+        group_name=$(getent group "$gid" 2>/dev/null | cut -d: -f1)
+        if [ -z "$group_name" ]; then
+            group_name="gpu-render-${gid}"
+            sudo groupadd -g "$gid" "$group_name" 2>/dev/null || true
+        fi
+        sudo usermod -aG "$group_name" "$(id -un)" 2>/dev/null || true
+        # Group membership just added via usermod doesn't apply to THIS
+        # already-running shell (that only happens on a fresh login) — `sg`
+        # re-reads /etc/group for its child process, which is what makes the
+        # open succeed here instead of silently degrading with no signal.
+        if sg "$group_name" -c "python3 -c \"import os; fd = os.open('$node', os.O_RDWR); os.close(fd)\"" >/dev/null 2>&1; then
+            GPU_RENDER_NODE="$node"
+            GPU_GROUP="$group_name"
+            GPU_DETECT_REASON="render node ${node} openable via group ${group_name} (gid ${gid})"
+            return 0
+        fi
+    done
+
+    if [ "$found_any" = 1 ]; then
+        GPU_DETECT_REASON="render node(s) under /dev/dri present but not openable by $(id -un) even after group join — falling back"
+    else
+        GPU_DETECT_REASON="/dev/dri has no renderD* node (only: $(ls /dev/dri 2>/dev/null | tr '\n' ' '))"
+    fi
+    return 1
+}
+
 CHROME_ARGS=(
     --remote-debugging-address=0.0.0.0
     --remote-debugging-port=9222
     --remote-allow-origins=*
     --no-first-run
-    --use-gl=angle
-    --use-angle=swiftshader
-    --enable-unsafe-swiftshader
-    --ignore-gpu-blocklist
+)
+
+if detect_gpu_render_node; then
+    echo "GPU detection: using real GL — ${GPU_DETECT_REASON}"
+    CHROME_ARGS+=(
+        --use-gl=angle
+        --use-angle=gl
+        --ignore-gpu-blocklist
+    )
+else
+    echo "GPU detection: falling back to swiftshader — ${GPU_DETECT_REASON}"
+    CHROME_ARGS+=(
+        --use-gl=angle
+        --use-angle=swiftshader
+        --enable-unsafe-swiftshader
+        --ignore-gpu-blocklist
+    )
+fi
+
+CHROME_ARGS+=(
     --disable-dev-shm-usage
     # --disable-background-networking removed: it blocked Service Workers (Telegram Web K)
     --disable-component-update
@@ -183,7 +255,14 @@ start_chrome() {
           /home/seluser/.config/chromium/SingletonCookie 2>/dev/null || true
 
     echo "Starting Chromium..."
-    "$CHROMIUM" "${CHROME_ARGS[@]}" about:blank &
+    if [ -n "${GPU_GROUP:-}" ]; then
+        # Same reason as the open-probe above: this shell's own group list was
+        # fixed before the usermod ran, so Chromium has to be spawned through
+        # `sg` too or it inherits none of the group that makes /dev/dri openable.
+        sg "${GPU_GROUP}" -c "$(printf '%q ' "$CHROMIUM" "${CHROME_ARGS[@]}" about:blank)" &
+    else
+        "$CHROMIUM" "${CHROME_ARGS[@]}" about:blank &
+    fi
     CHROME_PID=$!
 
     for i in $(seq 1 30); do
