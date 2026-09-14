@@ -66,10 +66,14 @@ jobs:
       - name: Resolve platforms
         id: plat
         run: |
-          if [ "${{ inputs.include_arm64 }}" = "true" ]; then
-            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
-          else
+          # Multi-arch by default — this also covers automatic
+          # push-triggered builds (the release-bump commit), which have no
+          # workflow_dispatch `inputs` to read. amd64-only is now an
+          # explicit opt-OUT via a manual dispatch, not the default path.
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.include_arm64 == false }}" = "true" ]; then
             echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Read app version
