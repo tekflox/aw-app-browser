@@ -3,18 +3,36 @@
 set -e
 
 # ── Fix chrome profile directory ownership ────────────────────────────────────
-# The profile dir is bind-mounted from the host (./data/chrome-profile).
-# It may be owned by the host's ubuntu user (uid=1000) rather than seluser
-# (uid=1200). Chromium crashes with SIGTRAP when it can't write its crashpad
+# The profile dir is bind-mounted from the host (aw-workspace's own
+# $AW_APP_DATA/chrome-profile — see aw-app.json's volumes). It's created by
+# aw-workspace's own process, so it comes in owned by ITS uid, not seluser's
+# (1200). Chromium crashes with SIGTRAP when it can't write its crashpad
 # database into the profile dir (Linux kernel blocks userfaultfd for non-root
 # unless vm.unprivileged_userfaultfd=1). Ensure seluser owns the directory.
+#
+# Plain `chown` FIRST, not `sudo chown`: aw-workspace grants every Tier-2
+# container CAP_CHOWN unconditionally (ContainerSupervisor.start(), fixed
+# 2026-09-18 for exactly this incident), which lets seluser chown directly —
+# no privilege transition needed, so it isn't subject to whatever breaks
+# `sudo` in a deeply nested container runtime (measured live: sudo's own
+# startup self-check refused even though /usr/bin/sudo's on-disk mode/owner
+# were genuinely correct, -rwsr-xr-x root root — the kernel declining to
+# honor a setuid bit here, not a permissions mistake). `sudo chown` stays as
+# a fallback for any OLDER aw-workspace host that predates the CAP_CHOWN
+# grant and still relies on sudo actually working; `|| true` last, so a host
+# with neither the capability nor working sudo degrades to "Chromium will
+# probably SIGTRAP" rather than taking the whole container down over it —
+# see the font-install block below for why that degrade-not-die shape
+# matters more than it looks like it should.
 CHROME_PROFILE_DIR="${HOME}/.config/chromium"
 if [ -d "${CHROME_PROFILE_DIR}" ]; then
     PROFILE_OWNER=$(stat -c '%u' "${CHROME_PROFILE_DIR}" 2>/dev/null || echo "0")
     MY_UID=$(id -u)
     if [ "${PROFILE_OWNER}" != "${MY_UID}" ]; then
         echo "Fixing chrome profile ownership (${PROFILE_OWNER} → ${MY_UID})..."
-        sudo chown -R "${MY_UID}:$(id -g)" "${CHROME_PROFILE_DIR}" 2>/dev/null || true
+        chown -R "${MY_UID}:$(id -g)" "${CHROME_PROFILE_DIR}" 2>/dev/null \
+            || sudo chown -R "${MY_UID}:$(id -g)" "${CHROME_PROFILE_DIR}" 2>/dev/null \
+            || true
     fi
 fi
 
