@@ -21,16 +21,34 @@ fi
 # ── Install Microsoft Core Fonts on first run (fingerprint matching) ──────────
 # Fonts live in /opt/aw-browser/fonts/ (bind-mounted from ./tools/browser/fonts/).
 # No internet required — instant copy on every container recreation.
+#
+# Every step below is chained with `&&`, and the block as a whole degrades to
+# a warning instead of failing the container — unlike the chown above (which
+# already guarded its own sudo call), these two `sudo` calls used to run bare.
+# `set -e` at the top of this file turns ANY non-zero exit into the whole
+# script dying right there, and it reliably did: a host whose nested
+# container runtime mounts the rootfs effectively nosuid (measured live,
+# 2026-09-18 — sudo's own startup self-check refuses even though the binary's
+# on-disk mode/owner are genuinely correct: `-rwsr-xr-x root root`, this is
+# the kernel declining to honor the setuid bit, not a permissions mistake)
+# means `sudo mkdir -p "${FONT_DEST}"` exits non-zero, `set -e` kills the
+# script, podman restarts the container, and the very next line it runs is
+# the same `sudo mkdir` — every restart, forever, the container never
+# reaching Xvfb/Chromium/CDP at all. Custom fingerprint fonts are a nice-to
+# -have; a running browser is not optional, so this must never be able to
+# take the whole container down with it.
 FONT_DEST="/usr/share/fonts/truetype/msttcorefonts"
 if [ ! -f "${FONT_DEST}/Arial.ttf" ]; then
     echo "Installing Microsoft Core Fonts from /opt/aw-browser/fonts/ ..."
-    sudo mkdir -p "${FONT_DEST}"
-    if [ -d /opt/aw-browser/fonts ] && ls /opt/aw-browser/fonts/*.ttf >/dev/null 2>&1; then
-        sudo cp /opt/aw-browser/fonts/*.ttf "${FONT_DEST}/"
+    if sudo mkdir -p "${FONT_DEST}" 2>/dev/null \
+        && [ -d /opt/aw-browser/fonts ] \
+        && ls /opt/aw-browser/fonts/*.ttf >/dev/null 2>&1 \
+        && sudo cp /opt/aw-browser/fonts/*.ttf "${FONT_DEST}/" 2>/dev/null
+    then
         sudo fc-cache -f 2>/dev/null || true
-        echo "  $(ls ${FONT_DEST}/*.ttf | wc -l) fonts installed."
+        echo "  $(ls "${FONT_DEST}"/*.ttf 2>/dev/null | wc -l) fonts installed."
     else
-        echo "WARNING: /opt/aw-browser/fonts/ not found — fonts unavailable"
+        echo "WARNING: could not install Microsoft Core Fonts (sudo unavailable in this container runtime, or /opt/aw-browser/fonts/ missing) — continuing without them; fingerprint matching is degraded but the browser is not blocked"
     fi
 fi
 
