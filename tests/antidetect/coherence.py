@@ -394,6 +394,36 @@ def assess(raw: dict, geo: dict | None) -> list[dict]:
                        f"screen {sw}x{sh}, window {ow}x{oh} "
                        f"(unused {gap[0]}x{gap[1]}px)", sc, gating=False))
 
+    # ── 6c. outer vs inner — the chrome-offset / headless tell ──────────────
+    # Found 2026-09-28 investigating Google's Gmail "this browser may not be
+    # secure" rejection: a real Chrome window's outerWidth/outerHeight is
+    # always taller/wider than innerWidth/innerHeight by the tab strip +
+    # omnibox (~87px in this container's Xvfb). A Playwright-MCP-driven
+    # session was forcing outer == inner (zero chrome offset) via a default
+    # device-metrics/viewport override on connect — one of the oldest
+    # documented headless/automation signatures (intoli's detect-headless,
+    # puppeteer-extra-plugin-stealth's window.outerdimensions evasion module).
+    # Fixed by disabling the forced viewport (apps/browser/mcp.json's
+    # playwright-mcp.config.json: browser.contextOptions.viewport=null) so
+    # the session reports the real window. GATING: unlike 6b, exact equality
+    # here has no innocent explanation — even a maximised real window keeps
+    # its chrome.
+    iw, ih = raw.get("screen", {}).get("innerWidth"), raw.get("screen", {}).get("innerHeight")
+    if not all(isinstance(v, (int, float)) for v in (ow, oh, iw, ih)):
+        res.append(_na("outer-vs-inner-window", "outer or inner window metrics missing",
+                       {"outer": [ow, oh], "inner": [iw, ih]}))
+    elif ow == iw and oh == ih:
+        res.append(_bad("outer-vs-inner-window",
+                        f"outerWidth/outerHeight ({ow}x{oh}) exactly equal "
+                        f"innerWidth/innerHeight ({iw}x{ih}) — zero chrome "
+                        f"offset, a classic headless/automation tell",
+                        {"outer": [ow, oh], "inner": [iw, ih]}))
+    else:
+        res.append(_ok("outer-vs-inner-window",
+                       f"outer {ow}x{oh} vs inner {iw}x{ih} "
+                       f"(chrome offset {ow - iw}x{oh - ih}px)",
+                       {"outer": [ow, oh], "inner": [iw, ih]}))
+
     # ── 7-9. the three the Architect measured clean — asserted, not patched ─
     cands = raw.get("webrtc")
     if not isinstance(cands, list):

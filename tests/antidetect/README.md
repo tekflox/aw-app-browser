@@ -44,10 +44,26 @@ it — an HTTP 4xx/5xx or a failed load is never reported as a FAIL.
 part that actually explains *why* a detector dislikes us: `deviceMemory`,
 Intl timezone vs the exit IP's geolocation, `enumerateDevices()` shape, WebGL
 extension count / `MAX_TEXTURE_SIZE` against the claimed renderer, UA vs
-`userAgentData` vs `navigator.platform`, plus the three the design pass
-measured clean (WebRTC private-IP leak, plugins/mimeTypes shape,
-Permissions/`Notification.permission`) so a regression there shows up as a
-failing assertion instead of silence.
+`userAgentData` vs `navigator.platform`, `outerWidth`/`outerHeight` vs
+`innerWidth`/`innerHeight` (the chrome-offset/headless tell — gating, see
+2026-09-28 below), plus the three the design pass measured clean (WebRTC
+private-IP leak, plugins/mimeTypes shape, Permissions/`Notification.permission`)
+so a regression there shows up as a failing assertion instead of silence.
+
+**2026-09-28 — Playwright MCP forced a zero chrome-offset.** This harness
+drives the browser over *raw* CDP (see "Three things this harness
+deliberately does NOT do" below), so it always saw the honest ~87px
+outer/inner delta and never caught that a **Playwright-MCP-driven** session
+was forcing `outerWidth/outerHeight == innerWidth/innerHeight` — Google's
+Gmail sign-in flagged this as an automation tell. Root cause and fix live in
+`apps/browser/mcp.json` / `apps/browser/playwright-mcp.config.json`
+(`browser.contextOptions.viewport: null`, so `@playwright/mcp` stops
+overriding the device metrics on connect). The `outer-vs-inner-window`
+assertion above now gates on this, but only catches a regression when the
+collecting session actually goes through Playwright MCP — verify that path
+by hand with the `playwright` MCP tool's `browser_evaluate`, comparing
+`window.outerWidth/outerHeight` against `innerWidth/innerHeight`; this
+harness's own raw-CDP collection cannot exercise that code path.
 
 **Daemon coverage** (`coverage.py`) — proves `platform-override.py` reaches
 targets other CDP clients *create*, not just ones they reuse. It exercises the
