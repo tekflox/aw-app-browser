@@ -8,6 +8,10 @@
 FROM debian:bookworm-slim
 
 # Chromium + Xvfb + VNC/noVNC + the minimal deps entrypoint-lite.sh needs.
+# libnss3-tools ships certutil, which entrypoint-lite.sh uses to install
+# aw-app-proxy's MITM CA into Chrome's NSS trust store (sql:$HOME/.pki/nssdb)
+# — the standard way to trust a custom CA, instead of relying solely on
+# --ignore-certificate-errors-spki-list.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
     chromium \
@@ -23,6 +27,7 @@ RUN apt-get update && \
     fontconfig \
     fonts-liberation \
     ca-certificates \
+    libnss3-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root runtime user. Named `seluser` (uid 1200, browserless convention) to

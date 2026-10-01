@@ -117,6 +117,43 @@ else
     echo "Timezone: could not resolve from the exit IP — keeping the container default (${TZ:-UTC})"
 fi
 
+# ── Trust aw-app-proxy's MITM CA ───────────────────────────────────────────────
+# aw-app-proxy MITMs CONNECT traffic (see proxy_app/mitm.py) so it can correct
+# request headers in transit — e.g. the open-source Chromium package never
+# sends the "Google Chrome" brand in Sec-CH-UA, a signal that's otherwise
+# checkable on literally the first request any site makes.
+#
+# NSS trust-store install (below, via certutil from libnss3-tools) is the
+# primary mechanism — it's how a real browser actually trusts a custom CA.
+# SPKI pinning is kept as a parallel fallback for the brief window before the
+# certutil install finishes, or in case the nssdb write ever fails for some
+# reason — belt and suspenders, not an either/or.
+MITM_CA_SPKI="$(curl -s --max-time 3 "http://${AW_WORKSPACE_HOST:-127.0.0.1}:9124/mitm-ca-spki" || true)"
+if [ -n "${MITM_CA_SPKI}" ]; then
+    echo "MITM CA SPKI pinned: ${MITM_CA_SPKI}"
+else
+    echo "WARNING: could not fetch MITM CA SPKI from aw-app-proxy — MITM header correction will not be trusted by Chrome"
+fi
+
+NSSDB_DIR="${HOME}/.pki/nssdb"
+MITM_CA_PEM="$(curl -s --max-time 3 "http://${AW_WORKSPACE_HOST:-127.0.0.1}:9124/mitm-ca.pem" || true)"
+if [ -n "${MITM_CA_PEM}" ] && command -v certutil >/dev/null 2>&1; then
+    mkdir -p "${NSSDB_DIR}"
+    if [ ! -f "${NSSDB_DIR}/cert9.db" ]; then
+        certutil -N -d "sql:${NSSDB_DIR}" --empty-password
+    fi
+    echo "${MITM_CA_PEM}" > /tmp/aw-mitm-ca.pem
+    certutil -D -n "aw-mitm-ca" -d "sql:${NSSDB_DIR}" 2>/dev/null || true
+    if certutil -A -n "aw-mitm-ca" -t "C,," -i /tmp/aw-mitm-ca.pem -d "sql:${NSSDB_DIR}"; then
+        echo "MITM CA installed in NSS trust store (${NSSDB_DIR})"
+    else
+        echo "WARNING: certutil failed to install the MITM CA — falling back to SPKI pinning only"
+    fi
+    rm -f /tmp/aw-mitm-ca.pem
+else
+    echo "WARNING: could not fetch MITM CA PEM or certutil missing — falling back to SPKI pinning only"
+fi
+
 export DISPLAY=:99
 SCREEN_WIDTH="${SCREEN_WIDTH:-1504}"
 SCREEN_HEIGHT="${SCREEN_HEIGHT:-846}"
@@ -268,6 +305,11 @@ CHROME_ARGS+=(
     # failed with ERR_PROXY_CONNECTION_FAILED.
     --proxy-server="${AW_WORKSPACE_HOST:-127.0.0.1}:9124"
     "--proxy-bypass-list=<-loopback>"
+    # Fallback trust path for the MITM CA (see the certutil/NSS install
+    # above) — scoped to exactly this one key, not a blanket
+    # --ignore-certificate-errors. Harmless no-op once the nssdb install
+    # has already succeeded; the pin just never gets exercised.
+    "--ignore-certificate-errors-spki-list=${MITM_CA_SPKI}"
     # --proxy-server only covers Chrome's HTTP(S)/TCP path. WebRTC ICE/STUN
     # candidate gathering runs over the OS network stack directly and ignores
     # it, leaking this container's own direct-to-internet IP alongside the
