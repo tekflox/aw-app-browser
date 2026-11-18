@@ -1,0 +1,31 @@
+name: Devteam Code Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize, closed]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: ["Rollout Tests"]
+    types: [completed]
+
+concurrency:
+  group: code-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    uses: fredericowu/aw-shared-workflows/.github/workflows/code-review-reusable.yml@master
+    with:
+      ci_check_name: "app-tests"
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+      checks: read
+      actions: read
+    secrets:
+      AW_CODEREVIEW_V1_KEY: ${{ secrets.AW_CODEREVIEW_V1_KEY }}
+      AW_DEVTEAM_MERGE_TOKEN: ${{ secrets.AW_DEVTEAM_MERGE_TOKEN }}
+      AW_DEVTEAM_EVENT_SECRET: ${{ secrets.AW_DEVTEAM_EVENT_SECRET }}
